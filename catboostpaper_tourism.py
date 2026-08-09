@@ -14,9 +14,9 @@ Original file is located at
 """
 This research aims to share insights and knowledge regarding the development of a
 predictive and interpretable machine learning model, CatBoostClassifier,
-for predict-ing students' end-of-term final grades and
-explaining the mod-el’s predictions employing SHAP, an explainable AI method.
-As well as share the pro-cess of tuning CatBoostClassifier hyperparameters using
+for predicting students' end-of-term final grades and
+explaining the model’s predictions employing SHAP, an explainable AI method.
+As well as share the process of tuning CatBoostClassifier hyperparameters using
 Particle Swarm Optimization (PSO), a population-based metaheuristic algorithm,
 with 3-fold stratified cross-validation.
 
@@ -28,14 +28,20 @@ Evaluation [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/
 The dataset is a 145 x 33 table of categorical/integer data, where each column
 corresponds to a question or attribute, and each row corresponds to a student.
 Questions 1-10 are personal questions, questions 11-16 are family questions,
-and the remaining questions cover the student's education habits.
-DATA.csv does not contain any helper columns that need to be dropped or broken
-down into multiple columns (unlike Q8 in the original walking-tourism dataset).
+and questions 17-30 cover the student's education habits.
+DATA.csv does not contain any helper columns that need to be dropped or broken down into multiple columns.
 The target column is GRADE, the student's end-of-term output grade
-(0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA), and all remaining
-columns are used as categorical features.
+(0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA). Only the education
+habit questions (columns 17-30) are used as categorical features; the personal
+questions (1-10), family questions (11-16), and the STUDENT ID/COURSE ID
+identifier columns are excluded from the model.
 
-Symmetries & Asymmetries: The distribution of the GRADE target column is checked
+Symmetries & Asymmetries: Although the questionnaire exhibited structural symmetry in questionnaire design
+through questions with a predefined set of answers, the response distribution for
+question GRADE showed strong asymmetry, with the highest-engagement
+category '1' being 4.375 times more than the lowest-engagement category '0'.
+This was heavily imbalanced, which resulted in biased predictions.
+The distribution of the GRADE target column is checked
 below via a value count. Class imbalance across the eight grade categories is
 expected, since some grades are naturally awarded far more often than others,
 which can result in biased predictions if left unaddressed.
@@ -72,11 +78,17 @@ print("\n\n============ PREPROCESSING... ============")
 drive.mount("/content/gdrive")
 df = pd.read_csv("/content/gdrive/MyDrive/DATA.csv")
 """DATA.csv does not contain any helper columns, so no columns were dropped."""
-df_clean = df.copy()
 print("No helper columns to drop")
-"""The categorical target was defined as GRADE, while all remaining columns as categorical features."""
+"""
+Only the education habit questions (columns 17-30) were kept as features.
+The personal questions (1-10), family questions (11-16), and the STUDENT ID/COURSE ID
+identifier columns were excluded, since they do not describe the student's education habits.
+"""
+education_habit_cols = [str(i) for i in range(17, 31)]  # columns 17-30
+print("Education habit columns (features):", education_habit_cols)
 target_col = 'GRADE'
 print("Target column:", target_col)
+df_clean = df[education_habit_cols + [target_col]].copy()
 #This will show True in any column where hidden whitespace exists:
 #(df_clean.astype(str) != df_clean.astype(str).apply(lambda col: col.str.strip())).any()
 #if everything is false:
@@ -108,7 +120,8 @@ print("Balansirano: najveca klasa <= 2-2,5 puta najmanje klase; klase imaju slic
 print("Umereno balansirano: najveca klasa > 3-4 puta najmanje klase")
 print("Veoma nebalansirano: najveca klasa === 5-10 puta najmanje klase; klasa ima < 20-30 primera")
 print("balanced classes?: \n{}\n".format(df_clean[target_col].value_counts()))
-# Inspect the printed value counts above to identify the majority/minority GRADE classes
+# '1' majority
+# '0' minority
 class_weights = compute_class_weight(
     class_weight='balanced',
     classes=np.unique(y_enc),
@@ -248,7 +261,7 @@ print(best_params)
 #-----------------------------------------------------
 print("\n\n============ Oprimized CatBoostClassifier model... ============")
 
-"""For the final CatBoostClassifier model evaluation with optimized hyperparame-ters,
+"""For the final CatBoostClassifier model evaluation with optimized hyperparameters,
 the dataset was split into 80% training and 20% testing, fixed random state,
 and stratified sampling to ensure the class distribution is the same in train and test splits,
 which is important for classification reliability."""
