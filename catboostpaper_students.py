@@ -502,6 +502,12 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
+
+
+
+
+
+
 #To understand how weekly study hours (column "17") influence predictions:
 
 import shap
@@ -521,6 +527,12 @@ plt.title("SHAP value distribution for weekly study hours - column 17 (class 1)"
 plt.xlabel("SHAP value")
 plt.ylabel("Frequency")
 plt.show()
+
+
+
+
+
+
 
 """
  The default CatBoostClassifier model, without hyperparameter tuning or class re-balancing,
@@ -575,6 +587,13 @@ sns.heatmap(cm, annot=True, fmt="d", xticklabels=class_labels, yticklabels=class
 plt.xlabel("Predicted")
 plt.ylabel("True")
 plt.show()
+
+
+
+
+
+
+
 
 #xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx Data verification from AI project
 #DataFrame object
