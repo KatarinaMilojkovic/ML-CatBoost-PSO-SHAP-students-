@@ -18,7 +18,7 @@ for predicting students' end-of-term final grades and
 explaining the model’s predictions employing SHAP, an explainable AI method.
 As well as share the process of tuning CatBoostClassifier hyperparameters using
 Particle Swarm Optimization (PSO), a population-based metaheuristic algorithm,
-with 3-fold stratified cross-validation.
+with repeated 3-fold stratified cross-validation.
 
 Dataset: The dataset used in this study is the "Higher Education Students
 Performance Evaluation" dataset, collected from the Faculty of Engineering and
@@ -31,10 +31,9 @@ Questions 1-10 are personal questions, questions 11-16 are family questions,
 and questions 17-30 cover the student's education habits.
 DATA.csv does not contain any helper columns that need to be dropped or broken down into multiple columns.
 The target column is GRADE, the student's end-of-term output grade
-(0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA). Only the education
-habit questions (columns 17-30) are used as categorical features; the personal
-questions (1-10), family questions (11-16), and the STUDENT ID/COURSE ID
-identifier columns are excluded from the model.
+(0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA), and all remaining
+columns (personal questions, family questions, education habit questions, and
+the STUDENT ID/COURSE ID identifier columns) are used as categorical features.
 
 Symmetries & Asymmetries: Although the questionnaire exhibited structural symmetry in questionnaire design
 through questions with a predefined set of answers, the response distribution for
@@ -58,7 +57,7 @@ were implemented in Python and executed in the Google Colab environment.
 import pandas as pd
 import numpy as np
 from catboost import CatBoostClassifier, Pool
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold, RepeatedStratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, log_loss, classification_report, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
@@ -78,17 +77,11 @@ print("\n\n============ PREPROCESSING... ============")
 drive.mount("/content/gdrive")
 df = pd.read_csv("/content/gdrive/MyDrive/DATA.csv")
 """DATA.csv does not contain any helper columns, so no columns were dropped."""
+df_clean = df.copy()
 print("No helper columns to drop")
-"""
-Only the education habit questions (columns 17-30) were kept as features.
-The personal questions (1-10), family questions (11-16), and the STUDENT ID/COURSE ID
-identifier columns were excluded, since they do not describe the student's education habits.
-"""
-education_habit_cols = [str(i) for i in range(17, 31)]  # columns 17-30
-print("Education habit columns (features):", education_habit_cols)
+"""The categorical target was defined as GRADE, while all remaining columns as categorical features."""
 target_col = 'GRADE'
 print("Target column:", target_col)
-df_clean = df[education_habit_cols + [target_col]].copy()
 #This will show True in any column where hidden whitespace exists:
 #(df_clean.astype(str) != df_clean.astype(str).apply(lambda col: col.str.strip())).any()
 #if everything is false:
@@ -152,21 +145,27 @@ training temporary CatBoost models using stratified cross-validation.
 
 To ensure reproducibility, a fixed random seed was used throughout all hyperparameter evaluations.
 
-Stratified K-fold cross-validation with three folds was applied
-to enforce symmetry in the target class distribution across folds.
-The 3-fold setup provided a balance between computational efficiency and statistical reliability,
-whereas enabling shuffling avoided ordering bias in the student data.
-With cross-validated model training, overfitting was reduced to a single train/test split,
-and each particle was evaluated using 3-fold stratified cross-validation.
+Stratified K-fold cross-validation with three folds, repeated three times (9 fold
+evaluations in total), was applied to enforce symmetry in the target class distribution
+across folds. With only 145 students spread across 8 grade classes (the rarest class has
+just 8 members), a single 3-fold split gives a highly noisy macro-F1 estimate per particle,
+which makes PSO chase noise rather than a genuine signal. Repeating the split three times
+with different random folds and averaging the score over all 9 evaluations gives PSO a
+much more stable fitness target to climb, increasing the chance of converging on a
+hyperparameter combination that generalizes rather than one that happened to look good on
+a single lucky/unlucky split. With cross-validated model training, overfitting was reduced
+to a single train/test split, and each particle was evaluated using repeated 3-fold
+stratified cross-validation.
 """
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
-kf = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)  # smaller for speed
+kf = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=RANDOM_STATE)  # 9 fold evals for a more stable fitness signal
 def pso_objective_parallel(particles):
     def evaluate_particle(p):
         lr = float(p[0])
         depth = int(round(p[1]))
         l2 = int(round(p[2]))
+        random_strength = float(p[3])
         fold_scores = []
 
         for train_idx, test_idx in kf.split(X, y_enc):
@@ -182,17 +181,21 @@ def pso_objective_parallel(particles):
 
             """
             Temporary CatBoostClassifier models were configured with
-            PSO-tuned learning_rate, depth, and l2_leaf_reg,
+            PSO-tuned learning_rate, depth, l2_leaf_reg, and random_strength,
             500 iterations, ‘MultiClass’ loss_function,
             ‘Mul-tiClass’ eval_metric, fixed random_seed,
             previously calculated balanced class_weights,
             and 50 early_stopping_rounds.
+            random_strength adds randomness to split selection, which acts as extra
+            regularization and helps the search find hyperparameters that resist
+            overfitting on this small, noisy dataset.
             """
             model = CatBoostClassifier(
                 iterations=500,  # smaller for speed
                 learning_rate=lr,
                 depth=depth,
                 l2_leaf_reg=l2,
+                random_strength=random_strength,
                 loss_function='MultiClass',
                 eval_metric='MultiClass',
                 random_seed=RANDOM_STATE,
@@ -218,35 +221,38 @@ def pso_objective_parallel(particles):
 """PSO search space was defined in the code as parameter bounds
 from 0.01 to 0.10 for learning rate,
 from 3 to 10 for depth,
-from 1 to 10 for L2 regularization
+from 1 to 10 for L2 regularization,
+from 0 to 5 for random_strength (added regularization dimension)
 """
 bounds = (
-    np.array([0.01, 3, 1]),
-    np.array([0.10, 10, 10])
+    np.array([0.01, 3, 1, 0.0]),
+    np.array([0.10, 10, 10, 5.0])
 )
 """
 *The optimizer was implemented using the Global Best topology
-with 10 particles, 3 dimensions, defined parameter bounds, and set options.
+with 10 particles, 4 dimensions, defined parameter bounds, and set options.
 *The custom parallelized fitness function^^^ simultaneously evaluated
 all hyperparameter sets proposed by the optimizer and returned their performance scores.
 The optimizer relied on those performance scores for returning the
-optimal-performing hyperparameter combination after 10 iterations.
-*The number of particles and iterations was reduced to
-balance optimization quality and computational efficiency.
+optimal-performing hyperparameter combination after 15 iterations.
+*The number of particles and iterations was chosen to balance optimization
+quality (a more thorough search over the now-more-reliable repeated-CV fitness
+signal) and computational efficiency.
 """
 optimizer = ps.single.GlobalBestPSO(
-    n_particles=10,   # smaller
-    dimensions=3,
+    n_particles=10,
+    dimensions=4,
     options={'c1':1.4, 'c2':1.4, 'w':0.7},
     bounds=bounds
 )
-cost, pos = optimizer.optimize(pso_objective_parallel, iters=10)  # smaller
+cost, pos = optimizer.optimize(pso_objective_parallel, iters=15)  # more thorough search
 best_params = {
     'learning_rate': float(pos[0]),
     'depth': int(round(pos[1])),
-    'l2_leaf_reg': int(round(pos[2]))
+    'l2_leaf_reg': int(round(pos[2])),
+    'random_strength': float(pos[3])
 }
-print("\nBest parameters found by PSO after 10 iterations:")
+print("\nBest parameters found by PSO after 15 iterations:")
 print(best_params)
 
 
@@ -280,6 +286,7 @@ for seed in [0, 1, 2, 3, 4]:
         learning_rate=best_params['learning_rate'],
         depth=best_params['depth'],
         l2_leaf_reg=best_params['l2_leaf_reg'],
+        random_strength=best_params['random_strength'],
         loss_function='MultiClass',
         eval_metric='MultiClass',
         random_seed=seed,
@@ -519,6 +526,9 @@ plt.show()
  The default CatBoostClassifier model, without hyperparameter tuning or class re-balancing,
  was run to establish a baseline for PSO and optimized model evaluation.
  The model was trained using the same data split and metrics.
+ It uses the same Pool/cat_features setup as the optimized model so that categorical
+ encoding is handled identically and the only real differences between baseline and
+ optimized model are PSO tuning, class balancing, and the 5-seed ensemble.
 """
 from catboost import CatBoostClassifier
 from sklearn.metrics import (accuracy_score, log_loss, f1_score, precision_score, recall_score, classification_report, confusion_matrix)
@@ -530,15 +540,17 @@ baseline_model = CatBoostClassifier(
     random_state=42,
     verbose=0
 )
-baseline_model.fit(X_train, y_train) # Train
-y_pred = baseline_model.predict(X_test) # Predict
+baseline_model.fit(Pool(X_train, y_train, cat_features=cat_features)) # Train
+baseline_test_pool = Pool(X_test, y_test, cat_features=cat_features)
+y_pred = baseline_model.predict(baseline_test_pool) # Predict
+baseline_probs = baseline_model.predict_proba(baseline_test_pool) # needed for its own log-loss
 
 # ---------------------------
 # Evaluation Metrics
 # ---------------------------
 print("\n=== Default CatBoost Baseline ===")
 acc = accuracy_score(y_test, y_pred)
-ll = log_loss(y_test, probs)
+ll = log_loss(y_test, baseline_probs)
 macro_f1 = f1_score(y_test, y_pred, average="macro")
 macro_precision = precision_score(y_test, y_pred, average="macro", zero_division=0)
 macro_recall = recall_score(y_test, y_pred, average="macro", zero_division=0)
