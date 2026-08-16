@@ -18,7 +18,7 @@ for predicting students' end-of-term final grades and
 explaining the model’s predictions employing SHAP, an explainable AI method.
 As well as share the process of tuning CatBoostClassifier hyperparameters using
 Particle Swarm Optimization (PSO), a population-based metaheuristic algorithm,
-with repeated 3-fold stratified cross-validation.
+with 3-fold stratified cross-validation.
 
 Dataset: The dataset used in this study is the "Higher Education Students
 Performance Evaluation" dataset, collected from the Faculty of Engineering and
@@ -57,7 +57,7 @@ were implemented in Python and executed in the Google Colab environment.
 import pandas as pd
 import numpy as np
 from catboost import CatBoostClassifier, Pool
-from sklearn.model_selection import train_test_split, StratifiedKFold, RepeatedStratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, log_loss, classification_report, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
@@ -145,21 +145,16 @@ training temporary CatBoost models using stratified cross-validation.
 
 To ensure reproducibility, a fixed random seed was used throughout all hyperparameter evaluations.
 
-Stratified K-fold cross-validation with three folds, repeated three times (9 fold
-evaluations in total), was applied to enforce symmetry in the target class distribution
-across folds. With only 145 students spread across 8 grade classes (the rarest class has
-just 8 members), a single 3-fold split gives a highly noisy macro-F1 estimate per particle,
-which makes PSO chase noise rather than a genuine signal. Repeating the split three times
-with different random folds and averaging the score over all 9 evaluations gives PSO a
-much more stable fitness target to climb, increasing the chance of converging on a
-hyperparameter combination that generalizes rather than one that happened to look good on
-a single lucky/unlucky split. With cross-validated model training, overfitting was reduced
-to a single train/test split, and each particle was evaluated using repeated 3-fold
-stratified cross-validation.
+Stratified K-fold cross-validation with three folds was applied
+to enforce symmetry in the target class distribution across folds.
+The 3-fold setup provided a balance between computational efficiency and statistical reliability,
+whereas enabling shuffling avoided ordering bias in the student data.
+With cross-validated model training, overfitting was reduced to a single train/test split,
+and each particle was evaluated using 3-fold stratified cross-validation.
 """
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
-kf = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=RANDOM_STATE)  # 9 fold evals for a more stable fitness signal
+kf = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)  # smaller for speed
 def pso_objective_parallel(particles):
     def evaluate_particle(p):
         lr = float(p[0])
@@ -236,8 +231,7 @@ all hyperparameter sets proposed by the optimizer and returned their performance
 The optimizer relied on those performance scores for returning the
 optimal-performing hyperparameter combination after 15 iterations.
 *The number of particles and iterations was chosen to balance optimization
-quality (a more thorough search over the now-more-reliable repeated-CV fitness
-signal) and computational efficiency.
+quality and computational efficiency.
 """
 optimizer = ps.single.GlobalBestPSO(
     n_particles=10,
