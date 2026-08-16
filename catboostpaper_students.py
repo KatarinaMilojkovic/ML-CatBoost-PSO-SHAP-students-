@@ -31,9 +31,11 @@ Questions 1-10 are personal questions, questions 11-16 are family questions,
 and questions 17-30 cover the student's education habits.
 DATA.csv does not contain any helper columns that need to be dropped or broken down into multiple columns.
 The target column is GRADE, the student's end-of-term output grade
-(0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA), and all remaining
-columns (personal questions, family questions, education habit questions, and
-the STUDENT ID/COURSE ID identifier columns) are used as categorical features.
+(0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA). All remaining columns
+(personal questions, family questions, education habit questions, and COURSE ID)
+are used as categorical features, except STUDENT ID, which was dropped: it is
+unique per row (145 distinct values for 145 students), so it carries no
+generalizable signal and would only add noise/overfitting risk.
 
 Symmetries & Asymmetries: Although the questionnaire exhibited structural symmetry in questionnaire design
 through questions with a predefined set of answers, the response distribution for
@@ -76,9 +78,12 @@ print("\n\n============ PREPROCESSING... ============")
 """The dataset was read from the CSV file and stored as a DataFrame object (df)."""
 drive.mount("/content/gdrive")
 df = pd.read_csv("/content/gdrive/MyDrive/DATA.csv")
-"""DATA.csv does not contain any helper columns, so no columns were dropped."""
-df_clean = df.copy()
-print("No helper columns to drop")
+"""
+STUDENT ID was dropped: it is unique per row (one value per student), so it carries
+no generalizable signal and would only add noise/overfitting risk to the model.
+"""
+df_clean = df.drop(columns=['STUDENT ID'])
+print("STUDENT ID column dropped (unique per row, no generalizable signal)")
 """The categorical target was defined as GRADE, while all remaining columns as categorical features."""
 target_col = 'GRADE'
 print("Target column:", target_col)
