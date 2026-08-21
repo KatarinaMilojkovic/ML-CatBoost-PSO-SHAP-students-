@@ -55,7 +55,21 @@ were implemented in Python and executed in the Google Colab environment.
 
 
 #-----------------------------------------------------Installing & importing libraries
-!pip install --quiet catboost pyswarms joblib
+"""
+This cell installs dependencies when run in Google Colab (the `!pip install` line
+below is a Colab/IPython shell escape, not valid standalone Python, and Colab starts
+each session with a fresh environment so it needs reinstalling every time). When
+running this script locally instead, install the same dependencies once from a
+terminal and skip this line:
+    pip install catboost pyswarms joblib scikit-learn pandas numpy matplotlib seaborn shap
+"""
+try:
+    import google.colab  # only importable inside Google Colab
+    IN_COLAB = True
+    get_ipython().system('pip install --quiet catboost pyswarms joblib')
+except ImportError:
+    IN_COLAB = False  # running locally (plain .py script or local Jupyter)
+
 import pandas as pd
 import numpy as np
 from catboost import CatBoostClassifier, Pool
@@ -63,7 +77,6 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, log_loss, classification_report, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
-from google.colab import drive
 import matplotlib.pyplot as plt
 import pyswarms as ps
 from joblib import Parallel, delayed
@@ -75,9 +88,19 @@ from joblib import Parallel, delayed
 #-----------------------------------------------------
 print("\n\n============ PREPROCESSING... ============")
 
-"""The dataset was read from the CSV file and stored as a DataFrame object (df)."""
-drive.mount("/content/gdrive")
-df = pd.read_csv("/content/gdrive/MyDrive/DATA.csv")
+"""
+The dataset was read from the CSV file and stored as a DataFrame object (df).
+In Colab, DATA.csv is read from Google Drive (mounted first). Running locally,
+DATA.csv is read from the working directory instead - place it next to this
+script, or edit DATA_PATH below to point at wherever it lives on disk.
+"""
+if IN_COLAB:
+    from google.colab import drive
+    drive.mount("/content/gdrive")
+    DATA_PATH = "/content/gdrive/MyDrive/DATA.csv"
+else:
+    DATA_PATH = "DATA.csv"
+df = pd.read_csv(DATA_PATH)
 """
 STUDENT ID was dropped: it is unique per row (one value per student), so it carries
 no generalizable signal and would only add noise/overfitting risk to the model.
@@ -202,7 +225,8 @@ def pso_objective_parallel(particles):
                 early_stopping_rounds=50,
                 verbose=False,
                 class_weights=class_weights,
-                thread_count=-1   # use all cores
+                thread_count=-1,   # use all cores
+                allow_writing_files=False   # avoids catboost_info/ dir races across parallel joblib workers
             )
             model.fit(tr_pool, eval_set=te_pool, use_best_model=True)
             preds = np.argmax(model.predict_proba(te_pool), axis=1)
@@ -291,7 +315,8 @@ for seed in [0, 1, 2, 3, 4]:
         random_seed=seed,
         early_stopping_rounds=100,
         verbose=False,
-        class_weights=class_weights
+        class_weights=class_weights,
+        allow_writing_files=False
     )
     m.fit(
         Pool(X_train, y_train, cat_features=cat_features),
@@ -549,7 +574,8 @@ from sklearn.metrics import (accuracy_score, log_loss, f1_score, precision_score
 # ---------------------------
 baseline_model = CatBoostClassifier(
     random_state=42,
-    verbose=0
+    verbose=0,
+    allow_writing_files=False
 )
 baseline_model.fit(Pool(X_train, y_train, cat_features=cat_features)) # Train
 baseline_test_pool = Pool(X_test, y_test, cat_features=cat_features)
