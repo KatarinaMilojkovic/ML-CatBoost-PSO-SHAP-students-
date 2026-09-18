@@ -52,6 +52,63 @@ model optimization, training, evaluation metrics, and interpretability,
 were implemented in Python and executed in the Google Colab environment.
 """
 
+# =====================================================================================
+# PROFESOROV FEEDBACK (doslovan copy-paste teksta dobijenog od profesora na prethodnu
+# verziju ovog rada). Svaka izmena u kodu koja odgovara na ovaj feedback oznacena je
+# komentarom "KOREKCIJA (kom. N)" gde N odgovara broju komentara ispod (grep "KOREKCIJA"
+# za sva mesta u fajlu).
+# =====================================================================================
+#
+# "Rad je dobar i vidi se da ste uložili dosta truda. Pisan je malo hrabrije, no što
+# treba da bude pisan studentski istraživački rad. Dakle, treba biti realniji-oprezniji
+# u interpretaciji rezultata. Ja ću vam navesti nekoliko zamerki, pa vi razmislite i
+# vidite kako ćete odgovoriti i poboljšati svoj seminarski."
+#
+# --- KOMENTAR 1 (-> KOREKCIJA kom. 1 u kodu: bootstrap intervali pouzdanosti) ---
+# "Prva hipoteza govori o značajnom poboljšanju, a zaključak tvrdi da su sve tri makro
+# metrike kod oba optimizovana modela bolje; međutim, ponovljeni CV model ima
+# makro-preciznost 0,2061 naspram 0,2933 kod baznog modela. Možda napisati da je prva
+# hipoteza delimično potvrđena, precizno navesti koje metrike jesu, a koje nisu
+# poboljšane, i izbaciti „značajno" ako nema statističkog testa. Još bolje bi bilo dati
+# intervale pouzdanosti ili rezultate preko više nezavisnih ponavljanja."
+#
+# --- KOMENTAR 2 (-> KOREKCIJA kom. 2 u kodu: podela pre PSO-a, CV nad trening skupom) ---
+# "Konačna evaluacija na jednom test skupu od samo 29 studenata je preslaba za jače
+# zaključke. Sa osam klasa neke klase u test skupu imaju samo dva ili tri predstavnika,
+# pa jedna jedina pogrešna predikcija drastično menja precision, recall i F1. To vidite
+# i sami. Dodatno, metodološki tok treba napisati potpuno nedvosmisleno: prvo
+# train/test podela, a zatim PSO i sve odluke o hiperparametrima isključivo na
+# trening skupu; trenutni opis prvo predstavlja CV/PSO, a tek kasnije train/test
+# podelu, iako kasnija diskusija govori o 116 trening primera. Razmisliti da se ponovi
+# ceo eksperiment preko, recimo, 10-20 različitih spoljašnjih stratifikovanih podela
+# ili primeniti nested/repeated CV i izvestiti srednju vrednost ± standardnu devijaciju
+# ili interval pouzdanosti."
+#
+# --- KOMENTAR 3 (-> KOREKCIJA kom. 3 u kodu: ablaciona analiza) ---
+# "Poređenje sa baznim modelom ne omogućava da se utvrdi šta je zapravo donelo
+# poboljšanje. Optimizovani pristup istovremeno uvodi balansirane težine klasa, PSO
+# hiperparametre i ensemble od pet modela sa soft voting-om, dok je baseline
+# podrazumevani CatBoost bez balansiranja. Tako se ne zna da li rezultat dolazi od
+# PSO-a, class weights-a ili ensemble-a. Predlažem da napravite malu ablation tabelu:
+# default CatBoost; CatBoost + class weights; CatBoost + class weights + PSO;
+# CatBoost + class weights + PSO + ensemble. Ako se rešite da radite master rad onda
+# bi čak jedan ili dva dodatna standardna modela, npr. Random Forest ili Logistic
+# Regression, značajno ojačala eksperimentalni deo."
+#
+# --- KOMENTAR 4 (-> KOREKCIJA kom. 4 u kodu: SHAP preko svih 5 modela ansambla) ---
+# "SHAP analiza ne objašnjava potpuno isti model koji se koristi za konačne
+# predikcije. Konačni rezultat dobija se soft voting-om pet nezavisnih CatBoost
+# modela, ali se SHAP računa samo za prvi od tih pet modela zato što je uzet kao
+# „reprezentativan". To je metodološki problem: objašnjava se jedan član ansambla, a
+# ne finalni prediktor. Pored toga, tvrdnja da je model „robustniji" ili
+# „interpretabilno bogatiji" zato što koristi svih 31 obeležje nije nužno opravdana —
+# korišćenje većeg broja obeležja može značiti i korišćenje šuma. Rad trenutno
+# zaključuje da je ponovljeni CV model robusniji upravo na osnovu takvog argumenta.
+# Možda bi trebalo agregirati SHAP vrednosti preko svih pet modela ili raditi
+# interpretaciju modela koji se zasebno evaluira kao finalni model; „robustniji"
+# koristiti samo ako je to pokazano stabilnošću rezultata kroz više eksperimenata."
+# =====================================================================================
+
 
 
 #-----------------------------------------------------Installing & importing libraries
@@ -184,9 +241,31 @@ hyperparameter combination that generalizes rather than one that happened to loo
 a single lucky/unlucky split. With cross-validated model training, overfitting was reduced
 to a single train/test split, and each particle was evaluated using repeated 3-fold
 stratified cross-validation.
+
+KOREKCIJA (kom. 2): the repeated 3-fold CV inside the fitness function now runs ONLY over
+the training set (X_train / y_train), which is carved out BEFORE PSO. The 29-sample test
+set is never seen during hyperparameter search.
 """
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
+
+# PROFESOR (kom. 2), doslovan citat: "...metodološki tok treba napisati potpuno
+# nedvosmisleno: prvo train/test podela, a zatim PSO i sve odluke o hiperparametrima
+# isključivo na trening skupu; trenutni opis prvo predstavlja CV/PSO, a tek kasnije
+# train/test podelu..." (pun tekst komentara 2 na vrhu fajla)
+# ===== KOREKCIJA (kom. 2): podela na trening/test skup PRE optimizacije rojem cestica =====
+# Zamerka profesora: PSO je ranije radio unakrsnu validaciju nad CELIM skupom (X, y_enc),
+# a tek posle PSO-a se izdvajao test skup od 29 studenata iz istih podataka -> hiperparametri
+# su "videli" test skup (curenje podataka). Ispravka: test skup se izdvaja OVDE, pre PSO-a,
+# istim random_state-om (dakle isti 29-clani test skup kao ranije), i NIJEDNA odluka o
+# hiperparametrima od ove tacke ne sme koristiti X_test / y_test.
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y_enc, test_size=0.2, stratify=y_enc, random_state=RANDOM_STATE
+)
+print("\n[KOREKCIJA kom.2] Trening skup: {} studenata | Test skup: {} studenata "
+      "(test skup se NE koristi ni u PSO-u ni za rano zaustavljanje)".format(len(X_train), len(X_test)))
+# ===== KRAJ KOREKCIJE (kom. 2) =====
+
 kf = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=RANDOM_STATE)  # 9 fold evals for a more stable fitness signal
 def pso_objective_parallel(particles):
     def evaluate_particle(p):
@@ -196,9 +275,14 @@ def pso_objective_parallel(particles):
         random_strength = float(p[3])
         fold_scores = []
 
-        for train_idx, test_idx in kf.split(X, y_enc):
-            X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
-            y_tr, y_te = y_enc[train_idx], y_enc[test_idx]
+        # ===== KOREKCIJA (kom. 2): unakrsna validacija SAMO nad trening skupom =====
+        # Ranije: kf.split(X, y_enc) -> preklopi su ukljucivali i buduci test skup.
+        # Sada: kf.split(X_train, y_train) -> PSO ocenjuje hiperparametre iskljucivo na
+        # trening podacima; train_idx/test_idx su interni preklopi UNUTAR trening skupa.
+        # (kraj korekcije kom. 2 -- v. sledece 3 linije)
+        for train_idx, test_idx in kf.split(X_train, y_train):
+            X_tr, X_te = X_train.iloc[train_idx], X_train.iloc[test_idx]
+            y_tr, y_te = y_train[train_idx], y_train[test_idx]
 
             """
             CatBoost’s optimized data structure, Pool,
@@ -295,13 +379,17 @@ print(best_params)
 #-----------------------------------------------------
 print("\n\n============ Oprimized CatBoostClassifier model... ============")
 
-"""For the final CatBoostClassifier model evaluation with optimized hyperparameters,
-the dataset was split into 80% training and 20% testing, fixed random state,
-and stratified sampling to ensure the class distribution is the same in train and test splits,
-which is important for classification reliability."""
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y_enc, test_size=0.2, stratify=y_enc, random_state=RANDOM_STATE
+# ===== KOREKCIJA (kom. 2): podela na trening/test je premestena IZNAD PSO bloka =====
+# Ranije je train_test_split(X, y_enc, ...) bio ovde (posle PSO-a). Sada se X_train/X_test/
+# y_train/y_test prave pre PSO-a (v. KOREKCIJA kom.2 na pocetku), pa je ova podela uklonjena.
+# Za rano zaustavljanje (early stopping) finalnih modela koristi se INTERNI validacioni skup
+# izdvojen iz trening skupa -- test skup se i dalje ne dodiruje.
+X_fit, X_val, y_fit, y_val = train_test_split(
+    X_train, y_train, test_size=0.2, stratify=y_train, random_state=RANDOM_STATE
 )
+print("[KOREKCIJA kom.2] Rano zaustavljanje na internom val skupu: "
+      "{} za treniranje, {} za validaciju (iz trening skupa)".format(len(X_fit), len(X_val)))
+# ===== KRAJ KOREKCIJE (kom. 2) =====
 """
 In this study, five CatBoostClassifier models were independently trained with
 a different random seed and identical optimized hyperparameters,
@@ -323,11 +411,16 @@ for seed in [0, 1, 2, 3, 4]:
         class_weights=class_weights,
         allow_writing_files=False
     )
+    # ===== KOREKCIJA (kom. 2): rano zaustavljanje na INTERNOM val skupu, ne na test skupu =====
+    # Ranije: eval_set = Pool(X_test, y_test, ...) + use_best_model=True -> broj iteracija se
+    # birao gledajuci u test skup (curenje). Sada: eval_set = interni val skup (X_val/y_val)
+    # izdvojen iz trening skupa. Test skup ostaje netaknut do konacne evaluacije.
     m.fit(
-        Pool(X_train, y_train, cat_features=cat_features),
-        eval_set=Pool(X_test, y_test, cat_features=cat_features),
+        Pool(X_fit, y_fit, cat_features=cat_features),
+        eval_set=Pool(X_val, y_val, cat_features=cat_features),
         use_best_model=True
     )
+    # ===== KRAJ KOREKCIJE (kom. 2) =====
     models.append(m)
 
 """
@@ -391,6 +484,57 @@ plt.xlabel("Predicted")
 plt.ylabel("True")
 plt.show()
 
+# PROFESOR (kom. 1), doslovan citat: "...zaključak tvrdi da su sve tri makro metrike kod
+# oba optimizovana modela bolje; međutim, ponovljeni CV model ima makro-preciznost 0,2061
+# naspram 0,2933 kod baznog modela... izbaciti „značajno" ako nema statističkog testa.
+# Još bolje bi bilo dati intervale pouzdanosti ili rezultate preko više nezavisnih
+# ponavljanja." (pun tekst komentara 1 na vrhu fajla)
+# ===== KOREKCIJA (kom. 1): bootstrap intervali pouzdanosti (test skup = 29 studenata) =====
+# Zamerka profesora: rad tvrdi "znacajno poboljsanje" bez ikakvog testa znacajnosti, a test
+# skup od 29 uzoraka je premali za jake zakljucke. Ovde se dodaju bootstrap 95% intervali
+# pouzdanosti (2.5 / 50 / 97.5 percentil) racunati resemplovanjem 29 test redova sa
+# ponavljanjem N=2000 puta iz VEC izracunatih predikcija -- bez ponovnog treniranja.
+BOOT_N = 2000
+_boot_rng = np.random.default_rng(RANDOM_STATE)
+
+def _metrics_from(y_true_arr, y_pred_arr, y_proba_arr):
+    return {
+        "accuracy":  accuracy_score(y_true_arr, y_pred_arr),
+        "log_loss":  log_loss(y_true_arr, y_proba_arr, labels=list(range(len(class_labels)))),
+        "macro_f1":  f1_score(y_true_arr, y_pred_arr, average="macro", zero_division=0),
+        "macro_precision": precision_score(y_true_arr, y_pred_arr, average="macro", zero_division=0),
+        "macro_recall":    recall_score(y_true_arr, y_pred_arr, average="macro", zero_division=0),
+    }
+
+def bootstrap_ci(y_true_arr, y_pred_arr, y_proba_arr, n=BOOT_N):
+    y_true_arr = np.asarray(y_true_arr); y_pred_arr = np.asarray(y_pred_arr).ravel()
+    y_proba_arr = np.asarray(y_proba_arr)
+    keys = ["accuracy", "log_loss", "macro_f1", "macro_precision", "macro_recall"]
+    acc = {k: [] for k in keys}
+    m = len(y_true_arr)
+    for _ in range(n):
+        idx = _boot_rng.integers(0, m, m)
+        if len(np.unique(y_true_arr[idx])) < 2:   # degenerate resample -> skip
+            continue
+        r = _metrics_from(y_true_arr[idx], y_pred_arr[idx], y_proba_arr[idx])
+        for k in keys:
+            acc[k].append(r[k])
+    return {k: (np.percentile(v, 2.5), np.percentile(v, 50), np.percentile(v, 97.5)) for k, v in acc.items()}
+
+def print_ci(title, ci):
+    print("\n--- {} ---".format(title))
+    for k, (lo, med, hi) in ci.items():
+        print("  {:<16}: {:.4f}   95% CI [{:.4f}, {:.4f}]".format(k, med, lo, hi))
+
+# sacuvati optimizovane predikcije PRE nego sto ih bazni model prepise nize
+y_pred_opt = np.asarray(y_pred).ravel().copy()
+probs_opt = np.asarray(probs).copy()
+
+print("\n\n============ [KOREKCIJA kom.1] Bootstrap 95% CI - optimizovani ansambl ============")
+ci_opt = bootstrap_ci(y_test, y_pred_opt, probs_opt)
+print_ci("Optimizovani model (soft-voting ansambl)", ci_opt)
+# ===== KRAJ KOREKCIJE (kom. 1) =====
+
 
 
 
@@ -425,21 +569,55 @@ Multi-class output was handled by producing one global importance value per feat
 The feature importance table was created with feature names, SHAP im-portance,
 and CatBoost’s built-in feature importance, displaying all questions.
 The table was sorted by SHAP importance.
-"""
-model = models[0]
-train_pool = Pool(X_train, y_train, cat_features=cat_features)
-shap_vals = model.get_feature_importance(train_pool, type='ShapValues')
-shap_vals_no_base = shap_vals[:, :, :-1]  # remove baseline
-mean_shap = np.mean(shap_vals_no_base, axis=(0,1))
-mean_abs_shap = np.mean(np.abs(shap_vals_no_base), axis=(0,1))
 
-cb_raw = np.array(model.get_feature_importance(train_pool, type='FeatureImportance'))
+KOREKCIJA (kom. 4): SHAP vrednosti i ugradjena vaznost obelezja se vise NE racunaju samo
+za models[0], nego za svih 5 modela ansambla i zatim se USREDNJAVAJU -- time se objasnjava
+upravo finalni prediktor (soft-voting ansambl), a ne jedan njegov clan.
+"""
+train_pool = Pool(X_train, y_train, cat_features=cat_features)
 n_features = len(feature_names)
-if len(cb_raw) != n_features:
-    n_classes = len(cb_raw) // n_features
-    cb_importance = cb_raw.reshape(n_classes, n_features).sum(axis=0)
-else:
-    cb_importance = cb_raw
+
+# PROFESOR (kom. 4), doslovan citat: "Konačni rezultat dobija se soft voting-om pet
+# nezavisnih CatBoost modela, ali se SHAP računa samo za prvi od tih pet modela zato što
+# je uzet kao „reprezentativan". To je metodološki problem: objašnjava se jedan član
+# ansambla, a ne finalni prediktor... Možda bi trebalo agregirati SHAP vrednosti preko
+# svih pet modela..." (pun tekst komentara 4 na vrhu fajla)
+# ===== KOREKCIJA (kom. 4): agregacija SHAP-a i CatBoost vaznosti preko svih 5 modela ansambla =====
+_per_model_sv = []          # po-model (n_samples, n_classes, n_features) SHAP nizovi
+_per_model_mean_shap = []
+_per_model_mean_abs_shap = []
+_per_model_cb = []
+for _m in models:
+    _sv = np.asarray(_m.get_feature_importance(train_pool, type='ShapValues'))[:, :, :-1]  # bez baseline stuba
+    _per_model_sv.append(_sv)
+    _per_model_mean_shap.append(np.mean(_sv, axis=(0, 1)))
+    _per_model_mean_abs_shap.append(np.mean(np.abs(_sv), axis=(0, 1)))
+    _cbr = np.array(_m.get_feature_importance(train_pool, type='FeatureImportance'))
+    if len(_cbr) != n_features:
+        _nc = len(_cbr) // n_features
+        _cbr = _cbr.reshape(_nc, n_features).sum(axis=0)
+    _per_model_cb.append(_cbr)
+
+# usrednjeno preko 5 modela = objasnjenje finalnog (soft-voting) prediktora
+mean_shap = np.mean(_per_model_mean_shap, axis=0)
+mean_abs_shap = np.mean(_per_model_mean_abs_shap, axis=0)
+cb_importance = np.mean(_per_model_cb, axis=0)
+# standardna devijacija preko 5 modela = mera stabilnosti vaznosti unutar ansambla
+mean_abs_shap_std = np.std(_per_model_mean_abs_shap, axis=0)
+cb_importance_std = np.std(_per_model_cb, axis=0)
+# usrednjeni po-uzorak SHAP niz za dependence/histogram grafike nize
+shap_vals_no_base = np.mean(_per_model_sv, axis=0)
+
+_stab = pd.DataFrame({
+    'feature': feature_names,
+    'mean_abs_shap': mean_abs_shap,
+    'mean_abs_shap_std_across_5': mean_abs_shap_std,
+    'cb_importance': cb_importance,
+    'cb_importance_std_across_5': cb_importance_std,
+}).sort_values('mean_abs_shap', ascending=False)
+print("\n[KOREKCIJA kom.4] Vaznost obelezja usrednjena preko 5 modela (+ st. devijacija preko 5):")
+print(_stab.head(12).to_string(index=False))
+# ===== KRAJ KOREKCIJE (kom. 4) =====
 
 fi_df_mas = pd.DataFrame({
     'feature': feature_names,
@@ -617,6 +795,94 @@ sns.heatmap(cm, annot=True, fmt="d", xticklabels=class_labels, yticklabels=class
 plt.xlabel("Predicted")
 plt.ylabel("True")
 plt.show()
+
+# ===== KOREKCIJA (kom. 1): bootstrap CI za bazni model + uparena razlika optimizovani - bazni =====
+baseline_pred = np.asarray(y_pred).ravel().copy()
+baseline_proba = np.asarray(baseline_probs).copy()
+print("\n\n============ [KOREKCIJA kom.1] Bootstrap 95% CI - bazni (default) model ============")
+ci_base = bootstrap_ci(y_test, baseline_pred, baseline_proba)
+print_ci("Bazni model (default CatBoost)", ci_base)
+
+print("\n--- Uparena bootstrap razlika (optimizovani - bazni), isti resemplovani test skup ---")
+_yt = np.asarray(y_test)
+_keys = ["accuracy", "log_loss", "macro_f1", "macro_precision", "macro_recall"]
+_pair_rng = np.random.default_rng(RANDOM_STATE)
+_diffs = {k: [] for k in _keys}
+_m = len(_yt)
+for _ in range(BOOT_N):
+    _idx = _pair_rng.integers(0, _m, _m)
+    if len(np.unique(_yt[_idx])) < 2:
+        continue
+    _ro = _metrics_from(_yt[_idx], y_pred_opt[_idx], probs_opt[_idx])
+    _rb = _metrics_from(_yt[_idx], baseline_pred[_idx], baseline_proba[_idx])
+    for _k in _keys:
+        _diffs[_k].append(_ro[_k] - _rb[_k])
+for _k in _keys:
+    _d = np.array(_diffs[_k])
+    # za log_loss "bolje" znaci nize -> udeo resemplova gde je optimizovani nizi
+    _better = np.mean(_d < 0) if _k == "log_loss" else np.mean(_d > 0)
+    print("  {:<16}: razlika median {:+.4f}   95% CI [{:+.4f}, {:+.4f}]   udeo resemplova u korist optimizovanog: {:.1%}".format(
+        _k, np.percentile(_d, 50), np.percentile(_d, 2.5), np.percentile(_d, 97.5), _better))
+print("NAPOMENA: ovo NIJE formalni test znacajnosti; sluzi samo kao gruba mera pouzdanosti razlike "
+      "na test skupu od svega 29 studenata.")
+# ===== KRAJ KOREKCIJE (kom. 1) =====
+
+
+# PROFESOR (kom. 3), doslovan citat: "Poređenje sa baznim modelom ne omogućava da se
+# utvrdi šta je zapravo donelo poboljšanje... Predlažem da napravite malu ablation
+# tabelu: default CatBoost; CatBoost + class weights; CatBoost + class weights + PSO;
+# CatBoost + class weights + PSO + ensemble." (pun tekst komentara 3 na vrhu fajla)
+# ===== KOREKCIJA (kom. 3): ablaciona analiza - koja komponenta donosi poboljsanje =====
+# Zamerka profesora: optimizovani pristup istovremeno uvodi (a) balansirane tezine klasa,
+# (b) PSO hiperparametre i (c) ansambl od 5 modela sa soft-voting-om, dok je bazni model
+# default CatBoost bez ijedne od te tri komponente -> ne zna se sta je donelo poboljsanje.
+# Ablacija dodaje komponente jednu po jednu:
+#   A) default CatBoost                         (= bazni model)
+#   B) + balansirane tezine klasa
+#   C) + PSO hiperparametri (jedan model)
+#   D) + ansambl 5 modela sa soft-voting-om     (= optimizovani model)
+print("\n\n============ [KOREKCIJA kom.3] Ablaciona analiza ============")
+
+def _eval_block(name, y_true_arr, y_pred_arr, y_proba_arr):
+    r = _metrics_from(np.asarray(y_true_arr), np.asarray(y_pred_arr).ravel(), np.asarray(y_proba_arr))
+    print("  {:<58} acc={:.4f}  logloss={:.4f}  macroF1={:.4f}  macroP={:.4f}  macroR={:.4f}".format(
+        name, r["accuracy"], r["log_loss"], r["macro_f1"], r["macro_precision"], r["macro_recall"]))
+    return r
+
+# A) default CatBoost (bez tezina, bez PSO, bez ansambla)
+_A = CatBoostClassifier(random_state=RANDOM_STATE, verbose=0, allow_writing_files=False)
+_A.fit(Pool(X_train, y_train, cat_features=cat_features))
+_eval_block("A) default CatBoost (= bazni)", y_test,
+            _A.predict(baseline_test_pool), _A.predict_proba(baseline_test_pool))
+
+# B) + balansirane tezine klasa
+_B = CatBoostClassifier(random_state=RANDOM_STATE, verbose=0, allow_writing_files=False,
+                        class_weights=class_weights)
+_B.fit(Pool(X_train, y_train, cat_features=cat_features))
+_eval_block("B) + balansirane tezine klasa", y_test,
+            _B.predict(baseline_test_pool), _B.predict_proba(baseline_test_pool))
+
+# C) + PSO hiperparametri (jedan model, isto rano zaustavljanje kao finalni ansambl)
+_C = CatBoostClassifier(
+    iterations=2000,
+    learning_rate=best_params['learning_rate'],
+    depth=best_params['depth'],
+    l2_leaf_reg=best_params['l2_leaf_reg'],
+    random_strength=best_params['random_strength'],
+    loss_function='MultiClass', eval_metric='MultiClass',
+    random_seed=0, early_stopping_rounds=100, verbose=False,
+    class_weights=class_weights, allow_writing_files=False
+)
+_C.fit(Pool(X_fit, y_fit, cat_features=cat_features),
+       eval_set=Pool(X_val, y_val, cat_features=cat_features), use_best_model=True)
+_eval_block("C) + PSO hiperparametri (jedan model)", y_test,
+            _C.predict(baseline_test_pool), _C.predict_proba(baseline_test_pool))
+
+# D) + ansambl 5 modela sa soft-voting-om (= optimizovani model, vec izracunat gore)
+_eval_block("D) + ansambl 5 modela, soft voting (= optimizovani)", y_test, y_pred_opt, probs_opt)
+print("NAPOMENA: PSO hiperparametri (best_params) su nasledjeni iz gornje optimizacije; "
+      "ablacija ne pokrece PSO ponovo.")
+# ===== KRAJ KOREKCIJE (kom. 3) =====
 
 
 

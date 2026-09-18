@@ -1,0 +1,15 @@
+2026-09-10 22:02:57,617 - pyswarms.single.global_best - INFO - Optimize for 1 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-10 22:03:03,552 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.1497512893947529, best pos: [0.06331731 3.32515289 6.46790367 0.85262062]
+2026-09-10 23:52:47,126 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-10 23:53:12,106 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-11 04:30:04,588 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.2473708004958005, best pos: [0.08128671 6.23480927 3.42986675 0.98179911]
+2026-09-11 08:29:19,588 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-11 14:38:03,135 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.21656142300499157, best pos: [0.04330769 4.84872184 1.33711189 1.3744708 ]
+2026-09-11 19:20:19,920 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-11 19:21:58,978 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.2492117858539427, best pos: [ 6.68301778 11.53442471  3.23444158  0.69103563]
+2026-09-11 19:32:22,642 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-11 19:33:04,280 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.22689817898151235, best pos: [0.39409907 0.46505683]
+2026-09-11 20:09:54,037 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-11 20:10:42,744 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.22689817898151235, best pos: [0.39409907 0.46505683]
+2026-09-11 20:11:21,869 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+2026-09-11 20:13:08,425 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.2492117858539427, best pos: [ 6.68301778 11.53442471  3.23444158  0.69103563]
