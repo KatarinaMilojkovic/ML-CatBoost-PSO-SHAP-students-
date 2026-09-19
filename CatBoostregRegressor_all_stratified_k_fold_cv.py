@@ -9,7 +9,7 @@ for predicting students' end-of-term final grades and
 explaining the model’s predictions employing SHAP, an explainable AI method.
 As well as share the process of tuning CatBoostClassifier hyperparameters using
 Particle Swarm Optimization (PSO), a population-based metaheuristic algorithm,
-with repeated 3-fold stratified cross-validation.
+with 3-fold stratified cross-validation.
 
 Dataset: The dataset used in this study is the "Higher Education Students
 Performance Evaluation" dataset, collected from the Faculty of Engineering and
@@ -64,7 +64,7 @@ were implemented in Python and executed in the Google Colab environment.
 import pandas as pd
 import numpy as np
 from catboost import CatBoostClassifier, Pool
-from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, log_loss, classification_report, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
@@ -180,7 +180,7 @@ print("--- So, when PSO chooses the lowest negative Macro F1 score its actually 
 print("--- in other words, by minimizing the negative Macro F1 score, PSO is maximizing the positive Macro F1 score.")
 print("A fixed random seed (42) was used to ensure reproducibility throughout hyperparameter evaluations.")
 
-rskf = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=RANDOM_STATE)  # 9 fold evals for a more stable fitness score
+skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)  # smaller for speed
 
 def pso_objective_parallel(particles):  #PSO parallelized objective function (objective==fitness)
     def evaluate_particle(p):
@@ -190,7 +190,7 @@ def pso_objective_parallel(particles):  #PSO parallelized objective function (ob
         random_strength = float(p[3])
         fold_scores = []
 
-        for train_idx, test_idx in rskf.split(X_train, y_train):# ===== Corection-2: only on training set =====
+        for train_idx, test_idx in skf.split(X_train, y_train):# ===== Corection-2: only on training set =====
             X_tr, X_te = X_train.iloc[train_idx], X_train.iloc[test_idx]
             y_tr, y_te = y_train[train_idx], y_train[test_idx]
 
@@ -203,7 +203,7 @@ def pso_objective_parallel(particles):  #PSO parallelized objective function (ob
                 learning_rate=lr,
                 depth=depth,
                 l2_leaf_reg=l2,
-                random_strength=random_strength,  #to resist overfitting on this small, noisy dataset
+                random_strength=random_strength, #to resist overfitting on this small, noisy dataset
                 loss_function='MultiClass',
                 eval_metric='MultiClass',
                 random_seed=RANDOM_STATE,
