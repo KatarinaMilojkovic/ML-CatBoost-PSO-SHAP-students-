@@ -43,21 +43,6 @@ model optimization, training, evaluation metrics, and interpretability,
 were implemented in Python and executed in the Google Colab environment.
 """
 
-# =====================================================================================
-# SIR 2:
-# ablation tabelu:
-# default Random Forest; 
-# Random Forest + class weights; 
-# Random Forest + class weights + PSO;
-# Random Forest + class weights + PSO + ensemble.
-# Master:
-# ablation tabelu:
-# default Logistic Regression; 
-# Logistic Regression + class weights; 
-# Logistic Regression + class weights + PSO;
-# Logistic Regression + class weights + PSO + ensemble.
-# =====================================================================================
-
 
 
 #--------------------------------------Installing & importing libraries
@@ -238,12 +223,19 @@ optimizer = ps.single.GlobalBestPSO(
     options={'c1':1.4, 'c2':1.4, 'w':0.7},
     bounds=bounds
 )
-cost, pos = optimizer.optimize(pso_objective_parallel, iters=15)  # more thorough search
+#cost, pos = optimizer.optimize(pso_objective_parallel, iters=15)  # more thorough search
+# best_params = {
+#     'learning_rate': float(pos[0]),
+#     'depth': int(round(pos[1])),
+#     'l2_leaf_reg': int(round(pos[2])),
+#     'random_strength': float(pos[3])
+# }
+#after ~6h, those are the best params:
 best_params = {
-    'learning_rate': float(pos[0]),
-    'depth': int(round(pos[1])),
-    'l2_leaf_reg': int(round(pos[2])),
-    'random_strength': float(pos[3])
+    'learning_rate': 0.04330769105259435,
+    'depth': 5,
+    'l2_leaf_reg': 1,
+    'random_strength': 1.374470799717045
 }
 print("\nBest parameters found by PSO after 15 iterations:")
 print(best_params)
@@ -451,7 +443,7 @@ _stab = pd.DataFrame({
     'std_of_mean_abs_shap_across_5': mean_abs_shap_std,
     'cb_importance_across_5': cb_importance,
     'std_of_cb_importance_across_5': cb_importance_std,
-}).sort_values('mean_abs_shap', ascending=False)
+}).sort_values('mean_abs_shap_across_5', ascending=False)
 print("\nThe feature importance table (mean and std):")
 print(_stab.head(12).to_string(index=False)) # ===== Corection-4: interpretaion of the final prediction (mean and std) =====
 

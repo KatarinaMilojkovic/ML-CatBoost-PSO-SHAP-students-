@@ -1,0 +1,354 @@
+(.venv) PS C:\Users\Katarina\Desktop\GitHub\ML-CatBoost-PSO-SHAP(students)> python CatBoostRegressor_all_stratified_k_fold_cv.py                      
+                                                                                           
+
+============ PREPROCESSING... ============
+- The dataset is read from the CSV file and stored as a DataFrame object.
+- STUDENT ID column is dropped (unique per row, no generalizable signal).
+- The target is column 'GRADE', while all remaining columns are treated as categorical features.
+- ORDINAL formulation: GRADE (0: Fail ... 7: AA) is an ordered scale, so it is used as a number 0-7 (CatBoostRegressor, RMSE).
+Features names (X): ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', 'COURSE ID']
+***Categorical features names: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+Target name (y): GRADE
+Grade values (ordinal 0..7): ['0', '1', '2', '3', '4', '5', '6', '7']
+--- Balanced:             class with highest value count <= 2-2,5 times class with lowest value count; classes have similar value counts
+--- Moderately balanced:  class with highest value count > 3-4 times class with lowest value count
+--- Severely imbalanced:  class with highest value count == 5-10 times class with lowest value count; class has < 20-30 value count
+Are grades balanced? Target value count: 
+GRADE
+1    35
+2    24
+3    21
+5    17
+7    17
+6    13
+4    10
+0     8
+Name: count, dtype: int64
+
+- Conclusion: Severely imbalanced grades, '1' is 4.375 times more than '0'.
+- Balanced class weights are used as SAMPLE WEIGHTS (CatBoostRegressor has no class_weights): every student gets the weight of his/her grade.
+- Sample weights are incorporated into the CatBoost training process to ensure the model learns from all grades fairly.
+Class weights (per grade 0..7): [2.265625   0.51785714 0.75520833 0.86309524 1.8125     1.06617647
+ 1.39423077 1.06617647]
+
+
+============ train_test_split... ============
+Why stratification of the target for train/test split?
+--- Split will be 80/20 but that does not guarantee that the target grade distribution will be the same in both sets.
+--- Stratification ensures that the target grade distribution is preserved in both training and test sets.
+--- In other words, it will not happen that the test set has all representations of one grade and the training set has 0.
+--- Stratification uses the ordinal grade values 0..7 as discrete labels (the target itself stays numeric for the regressor).
+--- --- The train_test_split makes a representative 80/20 train/test split.
+--- --- That representative train set is used by the fitness function to make representative 3 folds.
+--- --- That representative train set is used by the optimized model.
+training set: 116 students | test set: 29 students
+
+
+============ Particle Swarm Optimization (PSO)... ============
+For hyperparameter optimization, Particle Swarm Optimization (PSO) is used to identify an optimal learning rate, depth, L2 regularization, and random_strength.
+--- Imagine it like this: PSO optimizer randomly generates particles within defined bounds.
+--- Here, the pso optimizer is implemented using the Global Best topology ('global best pso optimizer').
+--- Global best influences particles movement -> particles are influenced to move toward the global-best particle (particle with the best fitnesse).
+--- The number of particles(10) and iterations(15) was chosen to balance optimization quality and computational efficiency.
+PSO optimizer proposes particles (hyperparameter combinations) and calls a custom fitness function to evaluate them.
+Here, the fitness function evaluates all particles in parallel using temporary CatBoostRegressor model (RMSE) with 3-fold stratified cross-validation on thetraining set only (80%).
+--- Why CatBoostRegressor?
+--- --- Because GRADE is an ordinal scale: predicting 6 when the truth is 7 is a smaller error than predicting 0. Regression (RMSE) respects that order, multiclass classification does not.
+--- Why k-fold stratified cross-validation strategy?
+--- --- To get a more reliable particle evaluation score (splitting the training set into 3 folds)
+--- --- Why spliting is better?
+--- --- --- Because splitting once, the score can depend on which students happen to be in the test set.
+--- --- --- When it is split 3 times, the score is more reliable.
+--- --- Why it has shuffle enabled?
+--- --- --- Because the folds could be affected by the original ordering of the data.
+--- --- --- The data will be shuffled before the folds are created
+--- --- StratifiedKFold creates folds while maintaining approximately the same grade distribution in each fold (like the strytify in train_test_split).
+--- --- Why 3-fold?
+--- --- --- The 3-fold setup provided a balance between computational efficiency and statistical reliability.
+--- Why only on training set?
+--- --- Because the test set is reserved for final evaluation and should not be used during hyperparameter optimization.
+--- --- The training set is split into 3 folds and the fitness function evaluation score is based on the train/test set in that split.
+The fitness function calculates the RMSE for each fold and returns the mean RMSE to PSO.
+The goal is to find the particle that gives the lowest evaluation score (mean RMSE across 3 folds).
+Why?
+--- RMSE is the typical size of the grade error (in grade points, big errors are punished more).
+--- The model needs to predict grades close to the real ones for all students.
+--- Students are weighted by their grade's balanced class weight during training, so rare grades are not ignored.
+Important thing to note: PSO minimizes the objective/fitness function.
+--- RMSE is already 'lower is better', so (unlike Macro F1 in the classifier version) it is NOT negated.
+A fixed random seed (42) was used to ensure reproducibility throughout hyperparameter evaluations.
+2026-09-20 11:43:15,803 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+pyswarms.single.global_best:   0%|                                                          pyswarms.single.global_best:   0%|                           pyswarms.single.global_best:   7%|██████▎                                                   pyswarms.single.global_best:   7%|██████▎                                                   pyswarms.single.global_best:  13%|████████████▌                                             pyswarms.single.global_best:  13%|████████████▌                                             pyswarms.single.global_best:  20%|██████████████████▊pyswarms.single.global_best: 100%|█████████████████████████████████████████████████████████████████████████████████████████████|15/15, best_cost=1.32
+2026-09-20 11:51:48,536 - pyswarms.single.global_best - INFO - Optimization finished | best cost: 1.315479150289496, best pos: [0.0960222  5.22528091 1.55422571 1.4383273 ]
+
+Best parameters found by PSO after 15 iterations:
+{'learning_rate': 0.09602219564901406, 'depth': 5, 'l2_leaf_reg': 2, 'random_strength': 1.4383273032305022}
+Best (lowest) mean 3-fold RMSE on the training set: 1.3155
+
+
+============ Oprimized CatBoostRegressor model... ============
+(from training set) training set: 92 students | (from training set) test set: 24 students
+5 CatBoostRegressor models were independently trained with different random seeds and identical optimized hyperparameters found by PSO.
+--- This way we are not relying on one random training run.
+--- Imagine it like this: 5 teachers make a prediction for the same group of students. The predictions would be slightly different.
+Every 5 model makes a prediction (a number on the 0-7 grade scale) for every test student from X_test.
+Because we now have 5 predictions for each test student, averaging was done (ensemble average = the regression counterpart of soft voting)
+
+Example prediction for first test student: continuous 2.139 -> grade 2 (true grade 5)
+Now we have one continuous prediction for every test student but we want 'we predict this grade for this test student'.
+So the continuous prediction is rounded and clipped to the 0-7 grade scale (y_pred).
+
+
+============ Evaluation metrics... ============
+y_test (real test students grades) vs pred_cont / y_pred (predicted continuous / rounded grades)
+RMSE (continuous prediction, grade points): 1.4668
+MAE  (continuous prediction, grade points): 1.2300
+QWK (quadratic weighted kappa, rounded)   : 0.7386
+Accuracy (rounded grade)                  : 0.2414
+Within +-1 grade (rounded)                : 0.7931
+Macro F1 (rounded)                        : 0.1482
+Macro-Precision (rounded)                 : 0.1271
+Macro-Recall (rounded)                    : 0.2042
+
+Classification Report (rounded predictions):
+              precision    recall  f1-score   support
+
+           0       0.00      0.00      0.00         2
+           1       0.00      0.00      0.00         7
+           2       0.27      0.80      0.40         5
+           3       0.50      0.50      0.50         4
+           4       0.00      0.00      0.00         2
+           5       0.00      0.00      0.00         3
+           6       0.25      0.33      0.29         3
+           7       0.00      0.00      0.00         3
+
+    accuracy                           0.24        29
+   macro avg       0.13      0.20      0.15        29
+weighted avg       0.14      0.24      0.17        29
+
+
+Confusion matrix (rounded predictions):
+[[0 2 0 0 0 0 0 0]
+ [0 0 6 0 1 0 0 0]
+ [0 1 4 0 0 0 0 0]
+ [0 0 2 2 0 0 0 0]
+ [0 0 1 1 0 0 0 0]
+ [0 0 2 1 0 0 0 0]
+ [0 0 0 0 1 1 1 0]
+ [0 0 0 0 0 0 3 0]]
+--- Conclusion: for an ordinal target look at how far the predictions are from the diagonal (MAE, RMSE, within +-1, QWK), not only at exact hits.
+How reliable are the metrics we got on these 29 test students?
+Test set of 29 instances is too small for strong conclusions.
+That's why we use Bootstrap 95% confidence interval (2.5 / 50 / 97.5 percentil)
+So, before this point, we trained the model, we gave it the test set (29 instances) and got predictions.
+Now, we give a bootstrap test set (29 instances but some are repeated). 
+We call the model 2000 times with a different bootstrap test set (29 instances but some are repeated)
+And show the bootstrap prediction [50] and the 95% interval [2.5, 97.5]
+The result could vary if you had a slightly different sample of test students -> Bootstrap gives you an estimate of that uncertainty
+
+--- Bootstrap 95% CI Optimized model (ensemble average) ---
+  rmse            : 1.4613   95% CI [1.1581, 1.7625]
+  mae             : 1.2318   95% CI [0.9430, 1.5271]
+  qwk             : 0.7336   95% CI [0.4597, 0.8687]
+  accuracy        : 0.2414   95% CI [0.1034, 0.3793]
+  within1         : 0.7931   95% CI [0.6207, 0.9310]
+  macro_f1        : 0.1417   95% CI [0.0500, 0.2429]
+  macro_precision : 0.1268   95% CI [0.0347, 0.2460]
+  macro_recall    : 0.2062   95% CI [0.0938, 0.3333]
+
+
+============ SHAP...CatBoost’s built-in feature importance... ============
+Interpreting the predictions of 5 models
+Regression output: one SHAP value per feature and student (no class dimension), in grade points.
+--- SHAP importance
+Because it is model-specific, SHAP importance (mean SHAP and mean |SHAP|) was calculated for each model
+The mean |SHAP| values were calculated across all students to obtain global feature importance scores.
+After that, it calculates the mean values of those 5 models
+--- CatBoost’s built-in feature importance
+Because it is model-specific, CatBoost’s built-in feature importance was calculated for each model
+After that, it calculates the mean values of those 5 models
+
+The feature importance table (mean and std):
+  feature  mean_abs_shap_across_5  std_of_mean_abs_shap_across_5  cb_importance_across_5  std_of_cb_importance_across_5
+COURSE ID                1.243666                       0.038178               54.402074                       1.891757
+        2                0.223182                       0.042452                7.154592                       2.608720
+       29                0.149082                       0.026289                4.193494                       1.442201
+       21                0.109733                       0.045771                3.414048                       0.752693
+        9                0.098542                       0.029902                3.270393                       1.323740
+       25                0.065120                       0.021312                1.437453                       0.859304
+       30                0.058403                       0.038859                1.384055                       0.913003
+        4                0.057383                       0.022739                2.055556                       0.506119
+       13                0.056130                       0.017600                1.721878                       0.418100
+        1                0.054424                       0.039335                0.580091                       0.236594
+       17                0.053969                       0.036714                1.444411                       1.090734
+       24                0.048691                       0.039660                0.606957                       0.373469
+
+All features influencing GRADE - sort(mean_abs_shap):
+      feature  mean_shap  mean_abs_shap  cb_importance
+30  COURSE ID   0.022931       1.243666      54.402074
+1           2   0.025934       0.223182       7.154592
+28         29  -0.001984       0.149082       4.193494
+20         21   0.008700       0.109733       3.414048
+8           9   0.021307       0.098542       3.270393
+24         25  -0.036020       0.065120       1.437453
+29         30   0.016826       0.058403       1.384055
+3           4   0.008961       0.057383       2.055556
+12         13  -0.016835       0.056130       1.721878
+0           1  -0.020371       0.054424       0.580091
+16         17  -0.025053       0.053969       1.444411
+23         24  -0.032322       0.048691       0.606957
+26         27   0.001926       0.047624       1.445116
+27         28  -0.025639       0.045882       1.254846
+2           3   0.008553       0.044639       1.767548
+14         15  -0.025737       0.044282       1.177410
+5           6  -0.006917       0.043682       0.741234
+7           8   0.005138       0.041562       1.269430
+15         16  -0.004423       0.040171       0.908566
+10         11   0.014403       0.039869       1.547796
+22         23  -0.014373       0.036923       0.783750
+18         19  -0.016216       0.034870       0.921712
+9          10  -0.003571       0.032765       1.184033
+11         12  -0.015436       0.031600       0.736089
+13         14   0.008637       0.029815       0.960749
+17         18  -0.008565       0.027728       1.124501
+19         20  -0.000251       0.023098       0.585540
+25         26   0.000898       0.021315       0.935610
+21         22   0.000056       0.021147       0.657771
+6           7   0.000024       0.010989       0.294766
+4           5  -0.000190       0.002731       0.038533
+
+All features influencing GRADE - sort(mean_shap):
+      feature  mean_shap  mean_abs_shap  cb_importance
+1           2   0.025934       0.223182       7.154592
+30  COURSE ID   0.022931       1.243666      54.402074
+8           9   0.021307       0.098542       3.270393
+29         30   0.016826       0.058403       1.384055
+10         11   0.014403       0.039869       1.547796
+3           4   0.008961       0.057383       2.055556
+20         21   0.008700       0.109733       3.414048
+13         14   0.008637       0.029815       0.960749
+2           3   0.008553       0.044639       1.767548
+7           8   0.005138       0.041562       1.269430
+26         27   0.001926       0.047624       1.445116
+25         26   0.000898       0.021315       0.935610
+21         22   0.000056       0.021147       0.657771
+6           7   0.000024       0.010989       0.294766
+4           5  -0.000190       0.002731       0.038533
+19         20  -0.000251       0.023098       0.585540
+28         29  -0.001984       0.149082       4.193494
+9          10  -0.003571       0.032765       1.184033
+15         16  -0.004423       0.040171       0.908566
+5           6  -0.006917       0.043682       0.741234
+17         18  -0.008565       0.027728       1.124501
+22         23  -0.014373       0.036923       0.783750
+11         12  -0.015436       0.031600       0.736089
+18         19  -0.016216       0.034870       0.921712
+12         13  -0.016835       0.056130       1.721878
+0           1  -0.020371       0.054424       0.580091
+16         17  -0.025053       0.053969       1.444411
+27         28  -0.025639       0.045882       1.254846
+14         15  -0.025737       0.044282       1.177410
+23         24  -0.032322       0.048691       0.606957
+24         25  -0.036020       0.065120       1.437453
+
+All features influencing GRADE - sort(cb_importance):
+      feature  mean_shap  mean_abs_shap  cb_importance
+30  COURSE ID   0.022931       1.243666      54.402074
+1           2   0.025934       0.223182       7.154592
+28         29  -0.001984       0.149082       4.193494
+20         21   0.008700       0.109733       3.414048
+8           9   0.021307       0.098542       3.270393
+3           4   0.008961       0.057383       2.055556
+2           3   0.008553       0.044639       1.767548
+12         13  -0.016835       0.056130       1.721878
+10         11   0.014403       0.039869       1.547796
+26         27   0.001926       0.047624       1.445116
+16         17  -0.025053       0.053969       1.444411
+24         25  -0.036020       0.065120       1.437453
+29         30   0.016826       0.058403       1.384055
+7           8   0.005138       0.041562       1.269430
+27         28  -0.025639       0.045882       1.254846
+9          10  -0.003571       0.032765       1.184033
+14         15  -0.025737       0.044282       1.177410
+17         18  -0.008565       0.027728       1.124501
+13         14   0.008637       0.029815       0.960749
+25         26   0.000898       0.021315       0.935610
+18         19  -0.016216       0.034870       0.921712
+15         16  -0.004423       0.040171       0.908566
+22         23  -0.014373       0.036923       0.783750
+5           6  -0.006917       0.043682       0.741234
+11         12  -0.015436       0.031600       0.736089
+21         22   0.000056       0.021147       0.657771
+23         24  -0.032322       0.048691       0.606957
+19         20  -0.000251       0.023098       0.585540
+0           1  -0.020371       0.054424       0.580091
+6           7   0.000024       0.010989       0.294766
+4           5  -0.000190       0.002731       0.038533
+
+=== Default CatBoostRegressor Baseline (baseline for PSO and optimized model evaluation) ===
+- differences between baseline and optimized model are PSO tuning, sample (class) weights, and the 5-seed ensemble
+
+=== Evaluation Metrics ===
+RMSE (continuous prediction, grade points): 1.5743
+MAE  (continuous prediction, grade points): 1.2654
+QWK (quadratic weighted kappa, rounded)   : 0.6096
+Accuracy (rounded grade)                  : 0.2414
+Within +-1 grade (rounded)                : 0.6552
+Macro-F1 (rounded)                        : 0.1437
+Macro-Precision (rounded)                 : 0.1579
+Macro-Recall (rounded)                    : 0.1979
+
+=== Classification Report (rounded predictions) ===
+              precision    recall  f1-score   support
+
+           0       0.00      0.00      0.00         2
+           1       0.00      0.00      0.00         7
+           2       0.26      1.00      0.42         5
+           3       0.50      0.25      0.33         4
+           4       0.00      0.00      0.00         2
+           5       0.00      0.00      0.00         3
+           6       0.50      0.33      0.40         3
+           7       0.00      0.00      0.00         3
+
+    accuracy                           0.24        29
+   macro avg       0.16      0.20      0.14        29
+weighted avg       0.17      0.24      0.16        29
+
+
+=== Confusion Matrix (rounded predictions): ===
+[[0 1 1 0 0 0 0 0]
+ [0 0 5 1 0 1 0 0]
+ [0 0 5 0 0 0 0 0]
+ [0 0 3 1 0 0 0 0]
+ [0 0 2 0 0 0 0 0]
+ [0 0 3 0 0 0 0 0]
+ [0 0 0 0 0 2 1 0]
+ [0 0 0 0 0 2 1 0]]
+
+--- Bootstrap 95% CI Default model ---
+  rmse            : 1.5559   95% CI [1.1706, 1.9720]
+  mae             : 1.2626   95% CI [0.9471, 1.6228]
+  qwk             : 0.6072   95% CI [0.2890, 0.7904]
+  accuracy        : 0.2414   95% CI [0.1034, 0.4138]
+  within1         : 0.6552   95% CI [0.4828, 0.8276]
+  macro_f1        : 0.1333   95% CI [0.0384, 0.2484]
+  macro_precision : 0.1488   95% CI [0.0227, 0.3000]
+  macro_recall    : 0.1979   95% CI [0.1250, 0.3214]
+
+--- Comparison of Optimized and Default Models Using Bootstrap CI on the same resampled test set ---
+  rmse            : median difference -0.0984   95% CI [-0.2828, +0.0599]   proportion of resamples favoring the optimized model: 87.8%
+  mae             : median difference -0.0334   95% CI [-0.1908, +0.1132]   proportion of resamples favoring the optimized model: 66.0%
+  qwk             : median difference +0.1268   95% CI [+0.0291, +0.2545]   proportion of resamples favoring the optimized model: 99.4%
+  accuracy        : median difference +0.0000   95% CI [-0.1034, +0.1034]   proportion of resamples favoring the optimized model: 34.5%
+  within1         : median difference +0.1379   95% CI [-0.0345, +0.3103]   proportion of resamples favoring the optimized model: 93.2%
+  macro_f1        : median difference +0.0061   95% CI [-0.0632, +0.0820]   proportion of resamples favoring the optimized model: 56.0%
+  macro_precision : median difference -0.0156   95% CI [-0.1339, +0.0934]   proportion of resamples favoring the optimized model: 37.3%
+  macro_recall    : median difference +0.0000   95% CI [-0.0750, +0.0923]   proportion of resamples favoring the optimized model: 44.5%
+
+
+============ Incremental ablation study (adding one component at a time) ============
+The evaluation is on the same y_test set
+  A) default CatBoostRegressor                                   rmse=1.5743  mae=1.2654  qwk=0.6096  acc=0.2414  within1=0.6552  macroF1=0.1437  macroP=0.1579  macroR=0.1979
+  B) default CatBoostRegressor + sample (class) weights          rmse=1.5991  mae=1.2981  qwk=0.6026  acc=0.2069  within1=0.5862  macroF1=0.1194  macroP=0.1000  macroR=0.1729
+  C) default CatBoostRegressor + sample weights + PSO hyperparameters rmse=1.5872  mae=1.3380  qwk=0.6153  acc=0.2414  within1=0.5862  macroF1=0.1425  macroP=0.1409  macroR=0.1979
+  D) default CatBoostRegressor + sample weights + PSO hyperparameters + ensemble 5 modela (average) rmse=1.4668  mae=1.2300  qwk=0.7386  acc=0.2414  within1=0.7931  macroF1=0.1482  macroP=0.1271  macroR=0.2042
