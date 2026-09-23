@@ -11,6 +11,11 @@ As well as share the process of tuning CatBoostClassifier hyperparameters using
 Particle Swarm Optimization (PSO), a population-based metaheuristic algorithm,
 with 3-fold stratified cross-validation.
 
+The target GRADE is GROUPED into 3 ordered categories: Low = grades 0,1,2 (67 students),
+Medium = grades 3,4,5 (48 students), High = grades 6,7 (30 students). Grouping reduces the number of
+target values from 8 to 3 (the rarest original grade had only 8 students) and the imbalance from
+4.375x to about 2.2x (Low vs. High).
+
 Dataset: The dataset used in this study is the "Higher Education Students
 Performance Evaluation" dataset, collected from the Faculty of Engineering and
 the Faculty of Educational Sciences students in 2019.
@@ -23,18 +28,21 @@ and questions 17-30 cover the student's education habits.
 DATA.csv does not contain any helper columns that need to be dropped or broken down into multiple columns.
 The target column is GRADE, the student's end-of-term output grade
 (0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA). All remaining columns
-(personal questions, family questions, education habit questions, and COURSE ID)
-are used as categorical features, except STUDENT ID, which was dropped: it is
+(personal questions, family questions, and education habit questions)
+are used as categorical features. STUDENT ID was dropped: it is
 unique per row (145 distinct values for 145 students), so it carries no
 generalizable signal and would only add noise/overfitting risk.
+COURSE ID is also dropped: it dominated the SHAP / CatBoost importance (the model mostly learned
+'which course is it' and the typical grade distribution of that course, not properties of the student),
+so this version uses only the 30 student questionnaire features (personal, family, education habits).
 
 Symmetries & Asymmetries: Although the questionnaire exhibited structural symmetry in questionnaire design
 through questions with a predefined set of answers, the response distribution for
 question GRADE showed strong asymmetry, with the highest-engagement
-category '1' being 4.375 times more than the lowest-engagement category '0'.
-This was heavily imbalanced, which resulted in biased predictions.
+original category '1' being 4.375 times more than the lowest-engagement original category '0'.
+This was heavily imbalanced (8 original grades), which is why the grades are grouped into Low/Medium/High.
 The distribution of the GRADE target column is checked
-below via a value count. Class imbalance across the eight grade categories is
+below via a value count. Class imbalance across the eight original grade categories is
 expected, since some grades are naturally awarded far more often than others,
 which can result in biased predictions if left unaddressed.
 
@@ -60,10 +68,11 @@ from joblib import Parallel, delayed
 print("\n\n============ PREPROCESSING... ============")
 print("- The dataset is read from the CSV file and stored as a DataFrame object.")
 print("- STUDENT ID column is dropped (unique per row, no generalizable signal).")
+print("- COURSE ID column is dropped (it dominated the importance: the model learned the course, not the student).")
 print("- The categorical target is column 'GRADE', while all remaining columns are treated as categorical features.")
 DATA_PATH = "DATA.csv"
 df = pd.read_csv(DATA_PATH)
-df_clean = df.drop(columns=['STUDENT ID'])
+df_clean = df.drop(columns=['STUDENT ID', 'COURSE ID'])   # COURSE ID removed: only student questionnaire features (1-30) remain
 target_col = 'GRADE'
 #This will show True in any column where hidden whitespace exists:
 #(df_clean.astype(str) != df_clean.astype(str).apply(lambda col: col.str.strip())).any()
@@ -75,18 +84,19 @@ y = df_clean[target_col].astype(str)                 #target
 #y = df_clean[target_col].astype(str).apply(lambda v: v.strip())
 feature_names = list(X.columns); print("Features names (X):", feature_names)
 cat_features = list(range(X.shape[1])); print("***Categorical features names:", cat_features)
-print("- Target values are encoded using LabelEncoder (labels transformed into integers suitable for multi-class classification)")
-print("- The original target values are preserved for prediction interpretation and evaluation metrics.")
-le = LabelEncoder()
-y_enc = le.fit_transform(y)
-class_labels = list(le.classes_)
+print("- Target groups are encoded as integers 0/1/2 (Low/Medium/High) suitable for 3-class classification.")
+GRADE_TO_GROUP = {0: 0, 1: 0, 2: 0,   3: 1, 4: 1, 5: 1,   6: 2, 7: 2}   # Low, Medium, High
+class_labels = ['Low (0-2)', 'Medium (3-5)', 'High (6-7)']
+y_enc = df_clean[target_col].map(GRADE_TO_GROUP).to_numpy(dtype=int)             # 0 = Low, 1 = Medium, 2 = High
 print("Target name (y):", target_col)
-print("Encoded target values:", class_labels)
+print("Encoded target values (0/1/2):", class_labels)
+print("- GRADE is grouped into 3 ordered categories: Low = 0,1,2 | Medium = 3,4,5 | High = 6,7")
+print("Original grade value counts: \n{}\n".format(df_clean[target_col].value_counts().sort_index()))
+print("Grouped target value counts: \n{}\n".format(pd.Series(y_enc).map(dict(enumerate(class_labels))).value_counts()))
 print("--- Balanced:             class with highest value count <= 2-2,5 times class with lowest value count; classes have similar value counts")
 print("--- Moderately balanced:  class with highest value count > 3-4 times class with lowest value count")
 print("--- Severely imbalanced:  class with highest value count == 5-10 times class with lowest value count; class has < 20-30 value count")
-print("Are classes balanced? Target value count: \n{}\n".format(df_clean[target_col].value_counts()))
-print("- Conclusion: Severely imbalanced classes, '1' is 4.375 times more than '0'.")
+print("- Conclusion: Moderately balanced groups, 'Low' (67) is about 2.2 times more than 'High' (30).")
 print("- Balanced class weights are used in order to mitigate the effects of target class imbalance.")
 print("- Balanced class weights are incorporated into the CatBoost training process to ensure the model learns from all classes fairly.")
 class_weights = compute_class_weight(
@@ -223,20 +233,19 @@ optimizer = ps.single.GlobalBestPSO(
     options={'c1':1.4, 'c2':1.4, 'w':0.7},
     bounds=bounds
 )
-# cost, pos = optimizer.optimize(pso_objective_parallel, iters=15)  # more thorough search
-# best_params = {
-#     'learning_rate': float(pos[0]),
-#     'depth': int(round(pos[1])),
-#     'l2_leaf_reg': int(round(pos[2])),
-#     'random_strength': float(pos[3])
-# }
-#after ~5h, those are the best params:
+cost, pos = optimizer.optimize(pso_objective_parallel, iters=15)  # more thorough search
 best_params = {
-    'learning_rate': 0.08128670867623279,
-    'depth': 6,
-    'l2_leaf_reg': 3,
-    'random_strength': 0.9817991065153189
+    'learning_rate': float(pos[0]),
+    'depth': int(round(pos[1])),
+    'l2_leaf_reg': int(round(pos[2])),
+    'random_strength': float(pos[3])
 }
+# best_params = {
+#     'learning_rate': ,
+#     'depth': ,
+#     'l2_leaf_reg': ,
+#     'random_strength': 
+# }
 print("\nBest parameters found by PSO after 15 iterations:")
 print(best_params)
 
@@ -317,7 +326,7 @@ print(f"Macro-Recall   : {macro_recall:.4f}")
 
 print("\nClassification Report:")
 print(classification_report(y_test, y_pred, target_names=class_labels))
-print("--- Conclusion: precision/recall is ok for 1 and 7. Model is relying on classes with highest value count")
+print("--- Conclusion: check per-group precision/recall above; the model may still lean on the largest group (Low).")
 
 print("\nConfusion matrix:")
 from sklearn.metrics import confusion_matrix
@@ -330,7 +339,7 @@ sns.heatmap(cm, annot=True, fmt="d", xticklabels=class_labels, yticklabels=class
 plt.xlabel("Predicted")
 plt.ylabel("True")
 plt.show()
-print("--- Conclusion: Model is pushing everything into some classes (1, 7). This is imbalanced!")
+print("--- Conclusion: look at which groups the predictions are pushed into (rows = true group, columns = predicted group).")
 
 
 
@@ -545,7 +554,7 @@ plt.show()
 
 #To understand how weekly study hours (column "17") influence predictions:
 import shap
-class_idx = 1  # positive class
+class_idx = 1  # class index 1 = 'Medium (3-5)'
 shap_class = shap_vals_no_base[:, class_idx, :]  # (n_samples, n_features)
 shap.dependence_plot(
     "17",
@@ -556,7 +565,7 @@ shap.dependence_plot(
 #or check distribution:
 study_hours_idx = feature_names.index("17")
 plt.hist(shap_class[:, study_hours_idx], bins=50)
-plt.title("SHAP value distribution for weekly study hours - column 17 (class 1)")
+plt.title("SHAP value distribution for weekly study hours - column 17 (class Medium)")
 plt.xlabel("SHAP value")
 plt.ylabel("Frequency")
 plt.show()

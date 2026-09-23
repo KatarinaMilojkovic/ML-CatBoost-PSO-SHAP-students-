@@ -23,10 +23,13 @@ and questions 17-30 cover the student's education habits.
 DATA.csv does not contain any helper columns that need to be dropped or broken down into multiple columns.
 The target column is GRADE, the student's end-of-term output grade
 (0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA). All remaining columns
-(personal questions, family questions, education habit questions, and COURSE ID)
-are used as categorical features, except STUDENT ID, which was dropped: it is
+(personal questions, family questions, and education habit questions)
+are used as categorical features. STUDENT ID was dropped: it is
 unique per row (145 distinct values for 145 students), so it carries no
 generalizable signal and would only add noise/overfitting risk.
+COURSE ID is also dropped: it dominated the SHAP / CatBoost importance (the model mostly learned
+'which course is it' and the typical grade distribution of that course, not properties of the student),
+so this version uses only the 30 student questionnaire features (personal, family, education habits).
 
 Symmetries & Asymmetries: Although the questionnaire exhibited structural symmetry in questionnaire design
 through questions with a predefined set of answers, the response distribution for
@@ -60,10 +63,11 @@ from joblib import Parallel, delayed
 print("\n\n============ PREPROCESSING... ============")
 print("- The dataset is read from the CSV file and stored as a DataFrame object.")
 print("- STUDENT ID column is dropped (unique per row, no generalizable signal).")
+print("- COURSE ID column is dropped (it dominated the importance: the model learned the course, not the student).")
 print("- The categorical target is column 'GRADE', while all remaining columns are treated as categorical features.")
 DATA_PATH = "DATA.csv"
 df = pd.read_csv(DATA_PATH)
-df_clean = df.drop(columns=['STUDENT ID'])
+df_clean = df.drop(columns=['STUDENT ID', 'COURSE ID'])   # COURSE ID removed: only student questionnaire features (1-30) remain
 target_col = 'GRADE'
 #This will show True in any column where hidden whitespace exists:
 #(df_clean.astype(str) != df_clean.astype(str).apply(lambda col: col.str.strip())).any()
@@ -223,19 +227,19 @@ optimizer = ps.single.GlobalBestPSO(
     options={'c1':1.4, 'c2':1.4, 'w':0.7},
     bounds=bounds
 )
-#cost, pos = optimizer.optimize(pso_objective_parallel, iters=15)  # more thorough search
+# cost, pos = optimizer.optimize(pso_objective_parallel, iters=15)  # more thorough search
 # best_params = {
 #     'learning_rate': float(pos[0]),
 #     'depth': int(round(pos[1])),
 #     'l2_leaf_reg': int(round(pos[2])),
 #     'random_strength': float(pos[3])
 # }
-#after ~6h, those are the best params:
+cost = -0.1791564057046014
 best_params = {
-    'learning_rate': 0.04330769105259435,
-    'depth': 5,
-    'l2_leaf_reg': 1,
-    'random_strength': 1.374470799717045
+    'learning_rate': 0.06963410154986684,
+    'depth': 10,
+    'l2_leaf_reg': 5,
+    'random_strength': 0.6553665443064672
 }
 print("\nBest parameters found by PSO after 15 iterations:")
 print(best_params)
