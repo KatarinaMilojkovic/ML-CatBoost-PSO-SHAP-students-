@@ -1,5 +1,5 @@
-(.venv) PS C:\Users\Katarina\Desktop\GitHub\ML-CatBoost-PSO-SHAP(students)> python CatBoostClassifier_all_repeated_stratified_k_fold_cv.py                
-                                                                                       
+(.venv) PS C:\Users\Katarina\Desktop\GitHub\ML-CatBoost-PSO-SHAP(students)> python CatBoostClassifier_all_repeated_stratified_k_fold_cv.py                                     
+                                                                  
 
 ============ PREPROCESSING... ============
 - The dataset is read from the CSV file and stored as a DataFrame object.
@@ -220,10 +220,10 @@ All features influencing GRADE - sort(mean_abs_shap):
 6        7 -8.281061e-20       0.003250       0.586214
 4        5  5.822913e-20       0.002421       1.456500
 19      20  1.510055e-20       0.000871       0.095605
-2026-09-23 10:36:43,662 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:36:43,663 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:36:43,669 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:36:43,675 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:07,099 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:07,100 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:07,106 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:07,114 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
 
 All features influencing GRADE - sort(mean_shap):
    feature     mean_shap  mean_abs_shap  cb_importance
@@ -257,10 +257,10 @@ All features influencing GRADE - sort(mean_shap):
 23      24 -6.919733e-19       0.006745       0.302274
 29      30 -7.332852e-19       0.021124       5.857102
 13      14 -8.073217e-19       0.011353       1.828418
-2026-09-23 10:36:58,594 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:36:58,594 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:36:58,600 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:36:58,610 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:21,730 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:21,730 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:21,736 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:21,746 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
 
 All features influencing GRADE - sort(cb_importance):
    feature     mean_shap  mean_abs_shap  cb_importance
@@ -294,16 +294,16 @@ All features influencing GRADE - sort(cb_importance):
 21      22  4.776098e-20       0.003687       0.436226
 23      24 -6.919733e-19       0.006745       0.302274
 19      20  1.510055e-20       0.000871       0.095605
-2026-09-23 10:37:07,090 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:07,091 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:07,096 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:07,103 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:14,251 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:14,251 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:24,996 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:24,996 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:45,109 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-2026-09-23 10:37:45,109 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:34,051 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:34,052 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:34,059 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:34,066 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:43,194 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:43,194 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:51,922 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:27:51,922 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:28:00,147 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-23 16:28:00,148 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
 
 === Default CatBoostClassifier Baseline (baseline for PSO and optimized model evaluation) ===
 - differences between baseline and optimized model are PSO tuning, class balancing, and the 5-seed ensemble
@@ -363,3 +363,53 @@ The evaluation is on the same y_test set
   B) default CatBoost + class weights                        acc=0.2759  logloss=1.9833  macroF1=0.1323  macroP=0.1071  macroR=0.1768
   C) default CatBoost + class weights + PSO hyperparameters  acc=0.1034  logloss=2.0832  macroF1=0.1030  macroP=0.1104  macroR=0.1562
   D) default CatBoost + class weights + PSO hyperparameters + ensemble 5 modela with soft-voting acc=0.2069  logloss=2.0124  macroF1=0.1131  macroP=0.1905  macroR=0.1277
+
+
+============ Repeated outer train/test splits (KOREKCIJA: profesorov komentar 2) ============
+Profesor: 'Konacna evaluacija na jednom test skupu od samo 29 studenata je preslaba za jace
+zakljucke... Razmisliti da se ponovi ceo eksperiment preko, recimo, 10-20 razlicitih spoljasnjih
+stratifikovanih podela ili primeniti nested/repeated CV i izvestiti srednju vrednost +/- standardnu
+devijaciju ili interval pouzdanosti.'
+Umesto oslanjanja na jednu fiksnu podelu (seed=42, 29 test studenata), ceo tok (train/test podela
+-> [opciono PSO] -> 5-seed ansambl -> evaluacija) ponavlja se preko N_OUTER_SEEDS nezavisnih
+spoljasnjih semena, razlicitih od seed-a 42 koriscenog za sve rezultate iznad.
+Napomena: class_weights i kodiranje ciljne promenljive ostaju isti preko svih spoljasnjih podela
+(racunati jednom, nad celim skupom) -- ovo je pojednostavljenje uvedeno radi jednostavnosti koda;
+raspodela klasa se malo menja od podele do podele, pa je uticaj ovog pojednostavljenja mali.
+RERUN_PSO_PER_OUTER_SEED = False -> brza varijanta: koriste se vec pronadjeni best_params (Tabela 1) za svih 15 podela; ponavljaju se samo train/test podela, treniranje ansambla i evaluacija
+--- outer split seed=100 ---
+--- outer split seed=101 ---
+--- outer split seed=102 ---
+--- outer split seed=103 ---
+--- outer split seed=104 ---
+--- outer split seed=105 ---
+--- outer split seed=106 ---
+--- outer split seed=107 ---
+--- outer split seed=108 ---
+--- outer split seed=109 ---
+--- outer split seed=110 ---
+--- outer split seed=111 ---
+--- outer split seed=112 ---
+--- outer split seed=113 ---
+--- outer split seed=114 ---
+
+--- Baseline model (mean +/- std over 15 outer splits) ---
+  accuracy        : 0.2690 +/- 0.0644   (min 0.1724, max 0.3793)
+  log_loss        : 2.0484 +/- 0.1189   (min 1.8702, max 2.2655)
+  macro_f1        : 0.1574 +/- 0.0627   (min 0.0556, max 0.2625)
+  macro_precision : 0.1723 +/- 0.0815   (min 0.0375, max 0.3191)
+  macro_recall    : 0.1914 +/- 0.0613   (min 0.1071, max 0.2842)
+
+--- Optimized model (soft-voting ansambl) (mean +/- std over 15 outer splits) ---
+  accuracy        : 0.2115 +/- 0.0722   (min 0.1034, max 0.3448)
+  log_loss        : 2.0415 +/- 0.0138   (min 2.0148, max 2.0645)
+  macro_f1        : 0.1341 +/- 0.0610   (min 0.0549, max 0.2715)
+  macro_precision : 0.1254 +/- 0.0655   (min 0.0424, max 0.2872)
+  macro_recall    : 0.1743 +/- 0.0715   (min 0.0679, max 0.2976)
+
+--- Paired difference (optimized - baseline), per outer split, mean +/- std ---
+  accuracy        : -0.0575 +/- 0.0922   optimized better in 13.3% of the 15 outer splits
+  log_loss        : -0.0068 +/- 0.1119   optimized better in 53.3% of the 15 outer splits
+  macro_f1        : -0.0233 +/- 0.0885   optimized better in 46.7% of the 15 outer splits
+  macro_precision : -0.0469 +/- 0.1078   optimized better in 46.7% of the 15 outer splits
+  macro_recall    : -0.0171 +/- 0.0912   optimized better in 46.7% of the 15 outer splits

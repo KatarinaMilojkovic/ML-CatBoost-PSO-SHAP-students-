@@ -1,0 +1,17 @@
+da li je sada predvidjanje pouzdano?
+
+Ne. Sada imamo najjači dokaz do sada da predikcija nije pouzdana — i to upravo iz analize koju smo maločas završili.
+
+Zašto:
+
+Preko 15 nezavisnih podela, optimizovani model NIJE bolji od najprostijeg mogućeg baznog modela (podrazumevani CatBoost, bez ikakvog podešavanja). Bolji je od baznog u svega 13–20% podela po tačnosti i ~47% po makro metrikama — što je gore od bacanja novčića. Prosečna razlika je blago negativna.
+Apsolutni nivo performansi je blizu slučajnog pogađanja:
+Tačnost ~0,21–0,27, naspram 0,24 koliko bi dao model koji uvek predvidi najbrojniju ocenu.
+Log-loss ~2,03–2,05, naspram ln 8 ≈ 2,08 koliko bi imao model koji svakoj od 8 ocena dodeli jednaku verovatnoću (12,5%).
+Makro-F1/preciznost/odziv su svi ispod 0,20 — model sistematski ne prepoznaje po nekoliko od osam ocena uopšte (klase „0", „2", „4", „6" se skoro nikad tačno ne pogode, bez obzira na model).
+Bootstrap intervali pouzdanosti su ogromni i uvek preklapaju nulu — ni na jednoj pojedinačnoj podeli razlika između modela nije statistički utvrđena.
+Uzrok nije loš algoritam nego skup podataka: 145 studenata raspoređenih u 8 vrlo neuravnoteženih ocena (najmanja klasa ima 8 primera) jednostavno ne nosi dovoljno signala da bi bilo koji model — CatBoost, PSO-optimizovan ili ne — pouzdano razlikovao svih 8 ocena. Nijedno pojedinačno obeležje iz upitnika nema jak uticaj (SHAP vrednosti su ravnomerno raspoređene, bez dominantnog prediktora otkad je COURSE ID uklonjen).
+
+Jedina varijanta koja je pokazala stvarnu snagu je ona sa grupisanom ciljnom promenljivom (Low/Medium/High, 3 klase) — tu je tačnost bila 0,724, znatno iznad slučajnog nivoa. Ako je cilj upotrebljiva predikcija (npr. za rano prepoznavanje studenata u riziku), taj pristup je jedini koji trenutno daje nešto na šta se realno može osloniti — ali ni tu bez daljih provera (repeated-split evaluacija nije rađena za grupisanu verziju).
+
+Kratko: za predviđanje tačne ocene (0–7) — ne, predikcija nije pouzdana, i sada to možemo tvrditi sa mnogo jačim dokazom nego ranije. Za grubu kategoriju uspeha (nizak/srednji/visok) — obećavajuće, ali još nedovoljno provereno da bi se nazvalo pouzdanim.

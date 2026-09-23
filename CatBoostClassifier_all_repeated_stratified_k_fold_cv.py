@@ -700,6 +700,146 @@ _eval_block("D) default CatBoost + class weights + PSO hyperparameters + ensembl
 
 
 
+print("\n\n============ Repeated outer train/test splits (KOREKCIJA: profesorov komentar 2) ============")
+print("Profesor: 'Konacna evaluacija na jednom test skupu od samo 29 studenata je preslaba za jace")
+print("zakljucke... Razmisliti da se ponovi ceo eksperiment preko, recimo, 10-20 razlicitih spoljasnjih")
+print("stratifikovanih podela ili primeniti nested/repeated CV i izvestiti srednju vrednost +/- standardnu")
+print("devijaciju ili interval pouzdanosti.'")
+print("Umesto oslanjanja na jednu fiksnu podelu (seed=42, 29 test studenata), ceo tok (train/test podela")
+print("-> [opciono PSO] -> 5-seed ansambl -> evaluacija) ponavlja se preko N_OUTER_SEEDS nezavisnih")
+print("spoljasnjih semena, razlicitih od seed-a 42 koriscenog za sve rezultate iznad.")
+print("Napomena: class_weights i kodiranje ciljne promenljive ostaju isti preko svih spoljasnjih podela")
+print("(racunati jednom, nad celim skupom) -- ovo je pojednostavljenje uvedeno radi jednostavnosti koda;")
+print("raspodela klasa se malo menja od podele do podele, pa je uticaj ovog pojednostavljenja mali.")
+
+N_OUTER_SEEDS = 15                                    # broj nezavisnih spoljasnjih podela (10-20 preporuceno)
+OUTER_SEEDS = list(range(100, 100 + N_OUTER_SEEDS))   # namerno razlicita od RANDOM_STATE=42 koriscenog gore
+RERUN_PSO_PER_OUTER_SEED = False                      # True = puna (spora!) nested-CV strogost: PSO se ponovo pokrece za SVAKU podelu
+PSO_PARTICLES_OUTER = 6                               # manji budzet po podeli (koristi se samo ako RERUN_PSO_PER_OUTER_SEED=True)
+PSO_ITERS_OUTER = 8
+# WARNING: repeated K-fold (3x3=9 evaluacija po cestici) je ~3x skuplje po cestici nego standardno
+# 3-fold; sa RERUN_PSO_PER_OUTER_SEED=True ovo moze trajati veoma dugo (sate po podeli) -- probati
+# prvo sa malim N_OUTER_SEEDS.
+print("RERUN_PSO_PER_OUTER_SEED = {} -> {}".format(
+    RERUN_PSO_PER_OUTER_SEED,
+    "puna nested-CV strogost: PSO se ponovo optimizuje za svaku od {} podela (vrlo sporo)".format(N_OUTER_SEEDS)
+    if RERUN_PSO_PER_OUTER_SEED else
+    "brza varijanta: koriste se vec pronadjeni best_params (Tabela 1) za svih {} podela; "
+    "ponavljaju se samo train/test podela, treniranje ansambla i evaluacija".format(N_OUTER_SEEDS)
+))
+
+
+def _pso_for_split(X_tr_o, y_tr_o, seed):
+    """Runs a (smaller-budget) PSO hyperparameter search on the given outer training split only,
+    using the same repeated stratified K-fold strategy as the main PSO block above. Used only when
+    RERUN_PSO_PER_OUTER_SEED=True."""
+    cv_inner = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=seed)
+
+    def _objective(particles):
+        def _eval_particle(p):
+            lr, depth, l2, rs = float(p[0]), int(round(p[1])), int(round(p[2])), float(p[3])
+            fold_scores = []
+            for tr_idx, te_idx in cv_inner.split(X_tr_o, y_tr_o):
+                X_f, X_v = X_tr_o.iloc[tr_idx], X_tr_o.iloc[te_idx]
+                y_f, y_v = y_tr_o[tr_idx], y_tr_o[te_idx]
+                mdl = CatBoostClassifier(
+                    iterations=500, learning_rate=lr, depth=depth, l2_leaf_reg=l2, random_strength=rs,
+                    loss_function='MultiClass', eval_metric='MultiClass', random_seed=seed,
+                    early_stopping_rounds=50, verbose=False, class_weights=class_weights,
+                    thread_count=-1, allow_writing_files=False
+                )
+                mdl.fit(Pool(X_f, y_f, cat_features=cat_features), eval_set=Pool(X_v, y_v, cat_features=cat_features), use_best_model=True)
+                p_ = np.argmax(mdl.predict_proba(Pool(X_v, y_v, cat_features=cat_features)), axis=1)
+                fold_scores.append(f1_score(y_v, p_, average='macro'))
+            return -np.mean(fold_scores)
+        return np.array(Parallel(n_jobs=-1)(delayed(_eval_particle)(p) for p in particles))
+
+    opt = ps.single.GlobalBestPSO(n_particles=PSO_PARTICLES_OUTER, dimensions=4,
+                                   options={'c1': 1.4, 'c2': 1.4, 'w': 0.7}, bounds=bounds)
+    _, pos = opt.optimize(_objective, iters=PSO_ITERS_OUTER, verbose=False)
+    return {'learning_rate': float(pos[0]), 'depth': int(round(pos[1])),
+            'l2_leaf_reg': int(round(pos[2])), 'random_strength': float(pos[3])}
+
+
+def run_one_outer_split(seed):
+    """Repeats train/test split -> [optional PSO] -> 5-seed ensemble -> evaluation for one outer seed.
+    Returns (baseline_metrics, optimized_metrics, hyperparameters_used)."""
+    X_tr_o, X_te_o, y_tr_o, y_te_o = train_test_split(
+        X, y_enc, test_size=0.2, stratify=y_enc, random_state=seed
+    )
+    test_pool_o = Pool(X_te_o, y_te_o, cat_features=cat_features)
+
+    # baseline (no tuning), trained on this split's train set
+    base_m = CatBoostClassifier(random_state=seed, verbose=0, allow_writing_files=False)
+    base_m.fit(Pool(X_tr_o, y_tr_o, cat_features=cat_features))
+    base_pred = base_m.predict(test_pool_o)
+    base_proba = base_m.predict_proba(test_pool_o)
+    base_metrics = _metrics_from(y_te_o, base_pred, base_proba)
+
+    # hyperparameters used for the optimized ensemble on this split
+    bp = _pso_for_split(X_tr_o, y_tr_o, seed) if RERUN_PSO_PER_OUTER_SEED else best_params
+
+    # optimized 5-seed ensemble, trained on this split's train set
+    X_fit_o, X_val_o, y_fit_o, y_val_o = train_test_split(
+        X_tr_o, y_tr_o, test_size=0.2, stratify=y_tr_o, random_state=seed
+    )
+    ens = []
+    for s2 in [0, 1, 2, 3, 4]:
+        mm = CatBoostClassifier(
+            iterations=2000, learning_rate=bp['learning_rate'], depth=bp['depth'],
+            l2_leaf_reg=bp['l2_leaf_reg'], random_strength=bp['random_strength'],
+            loss_function='MultiClass', eval_metric='MultiClass', random_seed=s2,
+            early_stopping_rounds=100, verbose=False, class_weights=class_weights,
+            allow_writing_files=False
+        )
+        mm.fit(Pool(X_fit_o, y_fit_o, cat_features=cat_features),
+               eval_set=Pool(X_val_o, y_val_o, cat_features=cat_features), use_best_model=True)
+        ens.append(mm)
+    opt_proba = np.mean([m.predict_proba(test_pool_o) for m in ens], axis=0)
+    opt_pred = np.argmax(opt_proba, axis=1)
+    opt_metrics = _metrics_from(y_te_o, opt_pred, opt_proba)
+
+    return base_metrics, opt_metrics, bp
+
+
+_outer_base_results, _outer_opt_results, _outer_params_used, _outer_failed = [], [], [], []
+for _seed in OUTER_SEEDS:
+    print("--- outer split seed={} ---".format(_seed))
+    try:
+        _b, _o, _bp = run_one_outer_split(_seed)
+        _outer_base_results.append(_b)
+        _outer_opt_results.append(_o)
+        _outer_params_used.append(_bp)
+    except ValueError as _e:
+        print("  !!! skipped (split failed, likely a class too small for this seed): {}".format(_e))
+        _outer_failed.append(_seed)
+
+
+def _print_mean_std(records, title):
+    print("\n--- {} (mean +/- std over {} outer splits) ---".format(title, len(records)))
+    for k in ["accuracy", "log_loss", "macro_f1", "macro_precision", "macro_recall"]:
+        vals = np.array([r[k] for r in records])
+        print("  {:<16}: {:.4f} +/- {:.4f}   (min {:.4f}, max {:.4f})".format(
+            k, vals.mean(), vals.std(), vals.min(), vals.max()))
+
+
+if _outer_base_results:
+    _print_mean_std(_outer_base_results, "Baseline model")
+    _print_mean_std(_outer_opt_results, "Optimized model (soft-voting ansambl)")
+    print("\n--- Paired difference (optimized - baseline), per outer split, mean +/- std ---")
+    for k in ["accuracy", "log_loss", "macro_f1", "macro_precision", "macro_recall"]:
+        diffs = np.array([o[k] - b[k] for o, b in zip(_outer_opt_results, _outer_base_results)])
+        better = np.mean(diffs < 0) if k == "log_loss" else np.mean(diffs > 0)
+        print("  {:<16}: {:+.4f} +/- {:.4f}   optimized better in {:.1%} of the {} outer splits".format(
+            k, diffs.mean(), diffs.std(), better, len(diffs)))
+    if _outer_failed:
+        print("\nNote: {} of {} requested outer seeds were skipped due to split failures: {}".format(
+            len(_outer_failed), N_OUTER_SEEDS, _outer_failed))
+else:
+    print("\nNo outer split succeeded -- check N_OUTER_SEEDS / class sizes.")
+
+
+
 
 
 
