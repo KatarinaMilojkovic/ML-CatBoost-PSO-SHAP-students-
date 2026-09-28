@@ -9,13 +9,13 @@ for predicting students' end-of-term final grades and
 explaining the model's predictions employing SHAP, an explainable AI method.
 As well as share the process of tuning CatBoostClassifier hyperparameters using
 Particle Swarm Optimization (PSO), a population-based metaheuristic algorithm,
-with the following design:
+with a full nested cross-validation design:
   1) 80% train / 20% test split.
-  2) On the 80% train set, PSO searches for hyperparameters using a CatBoostClassifier fitness
-     function evaluated via 3-fold REPEATED stratified cross-validation (with class_weights). The
-     final hyperparameters PSO settles on are then re-evaluated across those same repeated-CV folds
-     (this time computing the full metric set, not just the macro-F1 PSO used internally), and the
-     result is reported as mean +/- std and a 95% confidence interval across the folds.
+  2) On the 80% train set, 15 different OUTER stratified splits are made. For each outer split,
+     an INNER PSO search (fitness = 3-fold REPEATED stratified cross-validation with class_weights)
+     picks hyperparameters, and the held-out OUTER validation portion evaluates them. Results across
+     all 15 outer splits are reported as mean +/- std and a 95% confidence interval, and the 15
+     per-split hyperparameter sets are aggregated (median) into one final set.
   3) Using that final set of hyperparameters, 5 independent CatBoostClassifier "replicates" are
      trained, each as its own 3-fold REPEATED stratified cross-validation ensemble (9 fold-models,
      with class_weights) on the 80% train set; every fold-model predicts on the untouched 20% test
@@ -59,16 +59,22 @@ were implemented in Python and executed in the Google Colab environment.
 ============================================================================
 IMPORTANT - COMPUTATIONAL COST WARNING
 ============================================================================
-Step 2 runs a single PSO search (10 particles x 15 iterations), where every
-particle evaluation trains 3 x 3 = 9 CatBoost models (3-fold stratified CV
-repeated 3 times). A single, non-nested PSO run with this exact fitness
-design previously took about 9-10 hours. Step 3 then trains 5 x 9 = 45 more
-CatBoost models for the final ensemble, and SHAP explains all 45 of them
-(much slower than explaining 5 models), plus the ablation study adds close to
-another 20 fits on top of that. Expect the full script to take somewhere in
-the order of half a day. PSO_N_PARTICLES / PSO_N_ITERS (defined near the top
-of Step 2) and n_repeats in the RepeatedStratifiedKFold calls can be lowered
-for a quick smoke test.
+This script performs FULL NESTED cross-validation: PSO (10 particles x 15
+iterations, each particle evaluated over a 3x3=9-fold repeated stratified CV)
+is run once per OUTER split, and there are N_OUTER_SPLITS=10 outer splits.
+A smoke test with N_OUTER_SPLITS=2 and n_repeats=2 (both reduced purely for
+speed) took about 5 hours end-to-end; scaling that up to the current
+N_OUTER_SPLITS=10 / n_repeats=3 is estimated at roughly 35-40 hours
+(N_OUTER_SPLITS scales Step 2 almost linearly, n_repeats scales both Step 2
+and Step 3/SHAP). The methodologically preferred N_OUTER_SPLITS is 10-20; 10
+was chosen as the minimum needed for a non-degenerate 95% confidence interval
+across outer splits (with N_OUTER_SPLITS=2 the interval's degrees of freedom
+were so low it could include impossible negative values for metrics bounded
+in [0, 1]).
+N_OUTER_SPLITS, PSO_N_PARTICLES and PSO_N_ITERS are defined near the top of
+Step 2, and the repeated-CV fold count/repeats are set where each
+RepeatedStratifiedKFold is constructed -- lower them for a quick smoke test,
+or raise N_OUTER_SPLITS to 15-20 for an even more stable estimate.
 ============================================================================
 """
 
@@ -135,15 +141,6 @@ _boot_rng = np.random.default_rng(RANDOM_STATE)
 _METRIC_KEYS = ["accuracy", "log_loss", "macro_f1", "macro_precision", "macro_recall"]
 
 
-print("How reliable are the metrics we got on these 29 test students?")
-print("Test set of 29 instances is too small for strong conclusions.")
-print("That's why we use Bootstrap 95% confidence interval (2.5 / 50 / 97.5 percentil)")
-print("So, before this point, we trained the model, we gave it the test set (29 instances) and got predictions.")
-print("Now, we give a bootstrap test set (29 instances but some are repeated). ")
-print("We call the model 2000 times with a different bootstrap test set (29 instances but some are repeated)")
-print("And show the bootstrap prediction [50] and the 95% interval [2.5, 97.5]")
-print("The result could vary if you had a slightly different sample of test students -> Bootstrap gives you an estimate of that uncertainty")
-
 def _metrics_from(y_true_arr, y_pred_arr, y_proba_arr):
     return {
         "accuracy":  accuracy_score(y_true_arr, y_pred_arr),
@@ -152,6 +149,7 @@ def _metrics_from(y_true_arr, y_pred_arr, y_proba_arr):
         "macro_precision": precision_score(y_true_arr, y_pred_arr, average="macro", zero_division=0),
         "macro_recall":    recall_score(y_true_arr, y_pred_arr, average="macro", zero_division=0),
     }
+
 
 def bootstrap_ci(y_true_arr, y_pred_arr, y_proba_arr, n=BOOT_N):
     """Resamples the (fixed) test rows n times, with replacement, and returns the 2.5/50/97.5
@@ -170,10 +168,12 @@ def bootstrap_ci(y_true_arr, y_pred_arr, y_proba_arr, n=BOOT_N):
             acc[k].append(r[k])
     return {k: (np.percentile(v, 2.5), np.percentile(v, 50), np.percentile(v, 97.5)) for k, v in acc.items()}
 
+
 def print_ci(title, ci):
     print("\n--- {} ---".format(title))
     for k, (lo, med, hi) in ci.items():
         print("  {:<16}: {:.4f}   95% CI [{:.4f}, {:.4f}]".format(k, med, lo, hi))
+
 
 def mean_std_ci(vals, confidence=0.95):
     """Mean, sample std, and a t-distribution confidence interval for a small sample of point
@@ -189,6 +189,7 @@ def mean_std_ci(vals, confidence=0.95):
     else:
         margin = 0.0
     return mean, std, mean - margin, mean + margin
+
 
 def print_mean_std_ci(title, records, keys=None):
     keys = keys or _METRIC_KEYS
@@ -207,7 +208,7 @@ print("--- Split will be 80/20 but that does not guarantee that the target class
 print("--- Stratification ensures that the target class distribution is preserved in both training and test sets.")
 print("--- In other words, it will not happen that the test set has all representations of one class and the training set has 0.")
 print("--- --- The train_test_split makes a representative 80/20 train/test split.")
-print("--- --- The 80% training set is used for the PSO hyperparameter search (Step 2) and the final ensemble (Step 3).")
+print("--- --- The 80% training set is used for the entire nested cross-validation procedure (Step 2) and the final ensemble (Step 3).")
 print("--- --- The 20% test set is touched only once, at the very end of Step 3, for the final evaluation.")
 X_train, X_test, y_train, y_test = train_test_split(
     X, y_enc,
@@ -220,92 +221,32 @@ print("training set: {} students | test set: {} students".format(len(X_train), l
 
 
 
-print("\n\n============ Step 2: PSO hyperparameter search on the 80% train set (3-fold repeated stratified CV fitness) ============")
-print("For hyperparameter optimization, Particle Swarm Optimization (PSO) is used to identify an optimal learning rate, depth, L2 regularization, and random_strength.")
-print("--- Imagine it like this: PSO optimizer randomly generates particles within defined bounds.")
-print("--- Here, the pso optimizer is implemented using the Global Best topology ('global best pso optimizer').")
-print("--- Global best influences particles movement -> particles are influenced to move toward the global-best particle (particle with the best fitnesse).")
-print("--- The number of particles(10) and iterations(15) was chosen to balance optimization quality and computational efficiency.")
-print("PSO optimizer proposes particles (hyperparameter combinations) and calls a custom fitness function to evaluate them.")
-print("Here, the fitness function evaluates all particles in parallel using a temporary CatBoostClassifier with 3-fold REPEATED stratified cross-validation (with class_weights) on the training set only (80%).")
-print("--- Why CatBoostClassifier?")
-print("--- --- Because it is used for multiclass classification problems")
-print("--- Why k-fold stratified cross-validation strategy?")
-print("--- --- To get a more reliable particle evaluation score (splitting the training set into 3 folds)")
-print("--- --- Why spliting is better?")
-print("--- --- --- Because splitting once, the score can depend on which students happen to be in the test set.")
-print("--- --- --- When it is split 3 times, the score is more reliable.")
-print("--- --- Why it has shuffle enabled?")
-print("--- --- --- Because the folds could be affected by the original ordering of the data.")
-print("--- --- --- The data will be shuffled before the folds are created")
-print("--- --- StratifiedKFold creates folds while maintaining approximately the same class distribution in each fold (like the strytify in train_test_split).")
-print("--- --- Why 3-fold?")
-print("--- --- --- The 3-fold setup provided a balance between computational efficiency and statistical reliability.")
-print("--- Why REPEATED k-fold stratified cross-validation strategy?")
-print("--- --- 3 folds x 3 repeats = 9 evaluations per particle give a more stable fitness score than a single 3-fold pass,")
-print("--- --- because splitting once means the score can depend heavily on which students land in which fold.")
-print("--- Why only on the training set?")
-print("--- --- Because the test set is reserved for final evaluation and should not be used during hyperparameter optimization.")
-print("--- --- The training set is split into 3 folds and the fitness function evaluation score is based on the train/test set in that split.")
-print("The fitness function calculates the Macro F1 score for each of the 9 folds and returns the negative mean Macro F1 score to PSO.")
-print("The goal is to find the particle that gives the highest evaluation score (mean Macro F1 score across the 9 folds).")
-print("Why?")
-print("--- F1 score measures how well the model predicts one class.")
-print("--- Macro F1 score measures how well the model predicts each class (average of F1 scores across all classes)")
-print("--- The model needs to make good predictions for all classes, not just the majority class.")
-print("--- That's why we need to find a particle that gives the highest average Macro F1 score!")
-print("--- Macro F1 score tells us about the model's balanced performance across all classes, which is important for imbalanced datasets like this one.")
-print("Important thing to note: PSO minimizes the objective/fitness function (in other words, PSO will choose the lowest Macro F1 score returned by the fitness function).")
-print("This is why the evaluation score (Macro F1 score) returned to PSO is negated.")
-print("--- So, when PSO chooses the lowest negative Macro F1 score its actually choosing the highest positive Macro F1 score.")
-print("--- in other words, by minimizing the negative Macro F1 score, PSO is maximizing the positive Macro F1 score.")
-print("A fixed random seed (42) was used to ensure reproducibility throughout hyperparameter evaluations.")
+print("\n\n============ Step 2: Nested cross-validation for hyperparameter search (15 outer splits) ============")
+print("Why nested cross-validation instead of a single PSO run on the 80% training set?")
+print("--- A single PSO run picks hyperparameters using one specific inner cross-validation, and we never")
+print("--- see how well THOSE specific hyperparameters would have generalized to data they never influenced at all.")
+print("--- Nested CV fixes this: the 80% training set is itself split into an OUTER training portion and an")
+print("--- OUTER validation portion, 15 times, with 15 different random partitions ('outer stratified splits').")
+print("--- For each of the 15 outer splits:")
+print("--- --- INNER step: PSO searches for hyperparameters using ONLY the outer-training portion, with a")
+print("--- --- 3-fold REPEATED stratified cross-validation (3 folds x 3 repeats = 9 evaluations per particle,")
+print("--- --- with class_weights) as the fitness function -- exactly the same fitness function design used")
+print("--- --- for a single, non-nested PSO run in the earlier version of this script.")
+print("--- --- OUTER step: a model trained with those hyperparameters on the outer-training portion is")
+print("--- --- evaluated on the OUTER validation portion, which the inner PSO search never saw.")
+print("--- Because the outer validation portion is different, unseen data in every one of the 15 repeats,")
+print("--- the 15 outer-validation scores give an (almost) unbiased estimate of how well this whole")
+print("--- pipeline (PSO + CatBoost) generalizes -- reported below as mean +/- std and a 95% CI.")
+print("--- After all 15 outer splits are done, the 15 separate hyperparameter sets found by the 15 inner")
+print("--- PSO searches are combined (median of each hyperparameter) into ONE final set, used in Step 3.")
 
-PSO_N_PARTICLES = 10
+N_OUTER_SPLITS = 10
+OUTER_SEEDS = list(range(100, 100 + N_OUTER_SPLITS))   # distinct from RANDOM_STATE=42 used for the 80/20 split
+OUTER_VAL_SIZE = 0.2      # each outer split carves this fraction of the 80% train set off as outer-validation
+PSO_N_PARTICLES = 10      # same budget as the (former) single, non-nested PSO run
 PSO_N_ITERS = 15
-print("PSO_N_PARTICLES={}, PSO_N_ITERS={} (see the cost warning in the file docstring)".format(PSO_N_PARTICLES, PSO_N_ITERS))
-
-rskf = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=RANDOM_STATE)  # 9 fold evals for a more stable fitness score
-
-def pso_objective_parallel(particles):  #PSO parallelized objective function (objective==fitness)
-    def evaluate_particle(p):
-        lr = float(p[0])
-        depth = int(round(p[1]))
-        l2 = int(round(p[2]))
-        random_strength = float(p[3])
-        fold_scores = []
-
-        for train_idx, test_idx in rskf.split(X_train, y_train):# ===== Corection-2: only on training set =====
-            X_tr, X_te = X_train.iloc[train_idx], X_train.iloc[test_idx]
-            y_tr, y_te = y_train[train_idx], y_train[test_idx]
-
-            #pool - CatBoost's optimized data structure used to store features, labels, and categorical features
-            tr_pool = Pool(X_tr, y_tr, cat_features=cat_features)
-            te_pool = Pool(X_te, y_te, cat_features=cat_features)
-
-            model = CatBoostClassifier(
-                iterations=500,  # smaller for speed
-                learning_rate=lr,
-                depth=depth,
-                l2_leaf_reg=l2,
-                random_strength=random_strength,  #to resist overfitting on this small, noisy dataset
-                loss_function='MultiClass',
-                eval_metric='MultiClass',
-                random_seed=RANDOM_STATE,
-                early_stopping_rounds=50,
-                verbose=False,
-                class_weights=class_weights,
-                thread_count=-1,
-                allow_writing_files=False
-            )
-            model.fit(tr_pool, eval_set=te_pool, use_best_model=True)
-            preds = np.argmax(model.predict_proba(te_pool), axis=1)
-            fold_scores.append(f1_score(y_te, preds, average='macro'))
-
-        return -np.mean(fold_scores)
-
-    # Parallel evaluation of all particles
-    return np.array(Parallel(n_jobs=-1)(delayed(evaluate_particle)(p) for p in particles))
+print("N_OUTER_SPLITS={}, PSO_N_PARTICLES={}, PSO_N_ITERS={} (see the cost warning in the file docstring)".format(
+    N_OUTER_SPLITS, PSO_N_PARTICLES, PSO_N_ITERS))
 
 """PSO search space was defined in the code as parameter bounds
 from 0.01 to 0.10 for learning rate,
@@ -317,59 +258,134 @@ bounds = (
     np.array([0.01, 3, 1, 0.0]),
     np.array([0.10, 10, 10, 5.0])
 )
-optimizer = ps.single.GlobalBestPSO(
-    n_particles=PSO_N_PARTICLES,
-    dimensions=4,
-    options={'c1': 1.4, 'c2': 1.4, 'w': 0.7},
-    bounds=bounds
-)
-cost, pos = optimizer.optimize(pso_objective_parallel, iters=PSO_N_ITERS) # more thorough search
-best_params = {
-    'learning_rate': float(pos[0]),
-    'depth': int(round(pos[1])),
-    'l2_leaf_reg': int(round(pos[2])),
-    'random_strength': float(pos[3])
-}
-# best_params = {
-#     'learning_rate': ,
-#     'depth': ,
-#     'l2_leaf_reg': ,
-#     'random_strength': 
-# }
-print("\nBest parameters found by PSO after {} iterations:".format(PSO_N_ITERS))
-print(best_params)
 
-print("\n\n============ Step 2 result: PSO hyperparameters re-evaluated over the 3-fold repeated stratified CV folds ============")
-print("PSO's own fitness function only tracked the (negated) mean Macro F1 across the 9 folds. This pass")
-print("re-trains on those SAME 9 folds using the final best_params, this time computing the full metric")
-print("set (accuracy, log-loss, macro-F1, macro-precision, macro-recall) per fold, so we can report the")
-print("mean +/- standard deviation and a 95% confidence interval for PSO's result across the 9 folds.")
-cv_fold_metrics = []
-for train_idx, test_idx in rskf.split(X_train, y_train):
-    X_tr, X_te = X_train.iloc[train_idx], X_train.iloc[test_idx]
-    y_tr, y_te = y_train[train_idx], y_train[test_idx]
-    fold_model = CatBoostClassifier(
-        iterations=500,
-        learning_rate=best_params['learning_rate'],
-        depth=best_params['depth'],
-        l2_leaf_reg=best_params['l2_leaf_reg'],
-        random_strength=best_params['random_strength'],
+
+def make_inner_objective(X_inner, y_inner, seed):
+    """Builds the PSO fitness function for one outer split: 3-fold REPEATED stratified CV
+    (with class_weights) on the outer-training portion only."""
+    inner_rskf = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=seed)
+
+    def _objective(particles):
+        def _eval_particle(p):
+            lr = float(p[0])
+            depth = int(round(p[1]))
+            l2 = int(round(p[2]))
+            random_strength = float(p[3])
+            fold_scores = []
+            for tr_idx, te_idx in inner_rskf.split(X_inner, y_inner):
+                X_tr, X_te = X_inner.iloc[tr_idx], X_inner.iloc[te_idx]
+                y_tr, y_te = y_inner[tr_idx], y_inner[te_idx]
+                tr_pool = Pool(X_tr, y_tr, cat_features=cat_features)
+                te_pool = Pool(X_te, y_te, cat_features=cat_features)
+                model = CatBoostClassifier(
+                    iterations=500,  # smaller for speed
+                    learning_rate=lr,
+                    depth=depth,
+                    l2_leaf_reg=l2,
+                    random_strength=random_strength,
+                    loss_function='MultiClass',
+                    eval_metric='MultiClass',
+                    random_seed=seed,
+                    early_stopping_rounds=50,
+                    verbose=False,
+                    class_weights=class_weights,
+                    thread_count=-1,
+                    allow_writing_files=False
+                )
+                model.fit(tr_pool, eval_set=te_pool, use_best_model=True)
+                preds = np.argmax(model.predict_proba(te_pool), axis=1)
+                fold_scores.append(f1_score(y_te, preds, average='macro'))
+            return -np.mean(fold_scores)
+        # Parallel evaluation of all particles
+        return np.array(Parallel(n_jobs=-1)(delayed(_eval_particle)(p) for p in particles))
+    return _objective
+
+
+outer_hyperparams = []   # one dict per outer split (from the inner PSO search)
+outer_val_metrics = []   # one metrics dict per outer split (from the outer validation portion)
+
+for outer_i, outer_seed in enumerate(OUTER_SEEDS):
+    print("\n--- Outer split {}/{} (seed={}) ---".format(outer_i + 1, N_OUTER_SPLITS, outer_seed))
+
+    # split the 80% train set into an outer-training portion (used by the inner PSO search) and an
+    # outer-validation portion (held out from the inner search, used only to evaluate its result)
+    X_outer_tr, X_outer_val, y_outer_tr, y_outer_val = train_test_split(
+        X_train, y_train, test_size=OUTER_VAL_SIZE, stratify=y_train, random_state=outer_seed
+    )
+    print("  outer-train: {} students | outer-validation: {} students".format(len(X_outer_tr), len(X_outer_val)))
+
+    # ---- INNER: PSO with 3-fold repeated stratified CV fitness, on the outer-training portion only ----
+    inner_objective = make_inner_objective(X_outer_tr, y_outer_tr, outer_seed)
+    inner_optimizer = ps.single.GlobalBestPSO(
+        n_particles=PSO_N_PARTICLES,
+        dimensions=4,
+        options={'c1': 1.4, 'c2': 1.4, 'w': 0.7},
+        bounds=bounds
+    )
+    inner_cost, inner_pos = inner_optimizer.optimize(inner_objective, iters=PSO_N_ITERS, verbose=False)
+    outer_best_params = {
+        'learning_rate': float(inner_pos[0]),
+        'depth': int(round(inner_pos[1])),
+        'l2_leaf_reg': int(round(inner_pos[2])),
+        'random_strength': float(inner_pos[3]),
+    }
+    print("  inner PSO best hyperparameters:", outer_best_params, " (inner cost: {:.4f})".format(inner_cost))
+
+    # ---- OUTER: train once on the outer-training portion with those hyperparameters, evaluate on outer-validation ----
+    X_o_fit, X_o_es, y_o_fit, y_o_es = train_test_split(
+        X_outer_tr, y_outer_tr, test_size=0.2, stratify=y_outer_tr, random_state=outer_seed
+    )
+    outer_model = CatBoostClassifier(
+        iterations=2000,
+        learning_rate=outer_best_params['learning_rate'],
+        depth=outer_best_params['depth'],
+        l2_leaf_reg=outer_best_params['l2_leaf_reg'],
+        random_strength=outer_best_params['random_strength'],
         loss_function='MultiClass',
         eval_metric='MultiClass',
-        random_seed=RANDOM_STATE,
-        early_stopping_rounds=50,
+        random_seed=outer_seed,
+        early_stopping_rounds=100,
         verbose=False,
         class_weights=class_weights,
-        thread_count=-1,
         allow_writing_files=False
     )
-    fold_model.fit(Pool(X_tr, y_tr, cat_features=cat_features),
-                    eval_set=Pool(X_te, y_te, cat_features=cat_features), use_best_model=True)
-    fold_proba = fold_model.predict_proba(Pool(X_te, y_te, cat_features=cat_features))
-    fold_pred = np.argmax(fold_proba, axis=1)
-    cv_fold_metrics.append(_metrics_from(y_te, fold_pred, fold_proba))
+    outer_model.fit(
+        Pool(X_o_fit, y_o_fit, cat_features=cat_features),
+        eval_set=Pool(X_o_es, y_o_es, cat_features=cat_features),
+        use_best_model=True
+    )
+    outer_val_pool = Pool(X_outer_val, y_outer_val, cat_features=cat_features)
+    outer_pred = outer_model.predict(outer_val_pool)
+    outer_proba = outer_model.predict_proba(outer_val_pool)
+    outer_metrics = _metrics_from(y_outer_val, outer_pred, outer_proba)
+    print("  outer-validation metrics:", {k: round(v, 4) for k, v in outer_metrics.items()})
 
-print_mean_std_ci("PSO result: final hyperparameters over the 3-fold repeated stratified CV folds", cv_fold_metrics)
+    outer_hyperparams.append(outer_best_params)
+    outer_val_metrics.append(outer_metrics)
+
+print("\n\n============ Step 2 results: nested-CV generalization estimate ============")
+print("Each of the 15 numbers below comes from a DIFFERENT outer-validation portion that its own inner")
+print("PSO search never saw -- this is the (nearly) unbiased estimate of how well 'PSO + CatBoost' on")
+print("this dataset generalizes, as opposed to the optimistic estimate a single PSO run would give.")
+print_mean_std_ci("Nested-CV outer-validation results across {} outer splits".format(N_OUTER_SPLITS), outer_val_metrics)
+
+print("\n--- Hyperparameters found by the inner PSO search, one row per outer split ---")
+print("{:<8}{:<14}{:<8}{:<10}{:<16}".format("split", "learning_rate", "depth", "l2_leaf_reg", "random_strength"))
+for i, p in enumerate(outer_hyperparams):
+    print("{:<8}{:<14.6f}{:<8}{:<10}{:<16.6f}".format(i + 1, p['learning_rate'], p['depth'], p['l2_leaf_reg'], p['random_strength']))
+for pname in ['learning_rate', 'depth', 'l2_leaf_reg', 'random_strength']:
+    vals = [p[pname] for p in outer_hyperparams]
+    print("  {:<16}: mean={:.6f}  std={:.6f}  min={:.6f}  max={:.6f}".format(pname, np.mean(vals), np.std(vals), np.min(vals), np.max(vals)))
+
+# ===== final hyperparameters: aggregate (median) across all 15 outer runs =====
+best_params = {
+    'learning_rate': float(np.median([p['learning_rate'] for p in outer_hyperparams])),
+    'depth': int(round(np.median([p['depth'] for p in outer_hyperparams]))),
+    'l2_leaf_reg': int(round(np.median([p['l2_leaf_reg'] for p in outer_hyperparams]))),
+    'random_strength': float(np.median([p['random_strength'] for p in outer_hyperparams])),
+}
+print("\nFinal hyperparameters (median across all {} outer runs), used in Step 3 below:".format(N_OUTER_SPLITS))
+print(best_params)
 
 
 
@@ -392,7 +408,7 @@ for seed in [0, 1, 2, 3, 4]:
     print("\n--- replicate (seed) {} ---".format(seed))
     seed_rskf = RepeatedStratifiedKFold(n_splits=3, n_repeats=3, random_state=seed)
     fold_probs = []
-    for fold_i, (tr_idx, val_idx) in enumerate(seed_rskf.split(X_train, y_train)): # ===== Corection-2: only on training set =====
+    for fold_i, (tr_idx, val_idx) in enumerate(seed_rskf.split(X_train, y_train)):
         X_tr, X_val_fold = X_train.iloc[tr_idx], X_train.iloc[val_idx]
         y_tr, y_val_fold = y_train[tr_idx], y_train[val_idx]
         m = CatBoostClassifier(
@@ -467,7 +483,14 @@ print("--- Conclusion: Model is pushing everything into some classes (1, 7). Thi
 
 
 
-
+print("How reliable are the metrics we got on these 29 test students?")
+print("Test set of 29 instances is too small for strong conclusions.")
+print("That's why we use Bootstrap 95% confidence interval (2.5 / 50 / 97.5 percentil)")
+print("So, before this point, we trained the model, we gave it the test set (29 instances) and got predictions.")
+print("Now, we give a bootstrap test set (29 instances but some are repeated). ")
+print("We call the model 2000 times with a different bootstrap test set (29 instances but some are repeated)")
+print("And show the bootstrap prediction [50] and the 95% interval [2.5, 97.5]")
+print("The result could vary if you had a slightly different sample of test students -> Bootstrap gives you an estimate of that uncertainty")
 
 # saving optimized predictions
 y_pred_opt = np.asarray(y_pred).ravel().copy()
@@ -489,8 +512,8 @@ print("After that, it calculates the mean values across all {} models".format(le
 print("--- CatBoost's built-in feature importance")
 print("Because it is model-specific, CatBoost's built-in feature importance was calculated for each model")
 print("After that, it calculates the mean values across all {} models".format(len(models)))
-print("NOTE: the final ensemble has {} models (5 replicates x 9 CV folds) instead of just 5, so this step".format(len(models)))
-print("is proportionally slower than explaining a plain 5-model ensemble.")
+print("NOTE: with the nested-CV design, the final ensemble has {} models (5 replicates x 9 CV folds) instead".format(len(models)))
+print("of 5, so this step is proportionally slower than in the earlier, non-nested version of this script.")
 
 train_pool = Pool(X_train, y_train, cat_features=cat_features)
 n_features = len(feature_names)
@@ -642,7 +665,7 @@ plt.show()
 
 
 print("\n=== Default CatBoostClassifier Baseline (baseline for PSO and optimized model evaluation) ===")
-print("- differences between baseline and optimized model are PSO tuning, class balancing, and the 45-model ensemble")
+print("- differences between baseline and optimized model are nested-CV PSO tuning, class balancing, and the 45-model ensemble")
 baseline_model = CatBoostClassifier(
     random_state=42,
     verbose=0,
@@ -713,7 +736,7 @@ for _k in _METRIC_KEYS:
 
 print("\n\n============ Incremental ablation study (adding one component at a time) ============")
 print("The evaluation is on the same y_test set")
-# ===== Corection-3: ablation table (redesigned around the repeated-CV variant) =====
+# ===== Corection-3: ablation table (redesigned around the nested-CV / repeated-CV variants) =====
 #   A) default CatBoost
 #   B) A + class weights
 #   C) B + PSO hyperparameters (single model, no CV ensembling)
