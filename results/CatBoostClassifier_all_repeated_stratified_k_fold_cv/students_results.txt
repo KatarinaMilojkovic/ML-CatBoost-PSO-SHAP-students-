@@ -1,0 +1,411 @@
+(.venv) PS C:\Users\Katarina\Desktop\GitHub\ML-CatBoost-PSO-SHAP(students)> python CatBoostClassifier_all_repeated_stratified_k_fold_cv.py                             
+                    
+
+============ PREPROCESSING... ============
+- The dataset is read from the CSV file and stored as a DataFrame object.
+- STUDENT ID column is dropped (unique per row, no generalizable signal).
+- COURSE ID column is dropped (it dominated the importance: the model learned the course, not the student).
+- The categorical target is column 'GRADE', while all remaining columns are treated as categorical features.
+Features names (X): ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14','15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30']
+***Categorical features names: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+- Target values are encoded using LabelEncoder (labels transformed into integers suitable for multi-class classification)
+- The original target values are preserved for prediction interpretation and evaluation metrics.
+Target name (y): GRADE
+Encoded target values: ['0', '1', '2', '3', '4', '5', '6', '7']
+--- Balanced:             class with highest value count <= 2-2,5 times class with lowest valuecount; classes have similar value counts
+--- Moderately balanced:  class with highest value count > 3-4 times class with lowest value count
+--- Severely imbalanced:  class with highest value count == 5-10 times class with lowest value count; class has < 20-30 value count
+Are classes balanced? Target value count: 
+GRADE
+1    35
+2    24
+3    21
+5    17
+7    17
+6    13
+4    10
+0     8
+Name: count, dtype: int64
+
+- Conclusion: Severely imbalanced classes, '1' is 4.375 times more than '0'.
+- Balanced class weights are used in order to mitigate the effects of target class imbalance.
+- Balanced class weights are incorporated into the CatBoost training process to ensure the model learns from all classes fairly.
+Class weights: [2.265625   0.51785714 0.75520833 0.86309524 1.8125     1.06617647
+ 1.39423077 1.06617647]
+How reliable are the metrics we got on these 29 test students?
+Test set of 29 instances is too small for strong conclusions.
+That's why we use Bootstrap 95% confidence interval (2.5 / 50 / 97.5 percentil)
+So, before this point, we trained the model, we gave it the test set (29 instances) and got predictions.
+Now, we give a bootstrap test set (29 instances but some are repeated). 
+We call the model 2000 times with a different bootstrap test set (29 instances but some are repeated)
+And show the bootstrap prediction [50] and the 95% interval [2.5, 97.5]
+The result could vary if you had a slightly different sample of test students -> Bootstrap gives you an estimate of that uncertainty
+
+
+============ Step 1: train_test_split (80% / 20%)... ============
+Why stratification of the target for train/test split?
+--- Split will be 80/20 but that does not guarantee that the target class distribution will be the same in both sets.
+--- Stratification ensures that the target class distribution is preserved in both training andtest sets.
+--- In other words, it will not happen that the test set has all representations of one class and the training set has 0.
+--- --- The train_test_split makes a representative 80/20 train/test split.
+--- --- The 80% training set is used for the PSO hyperparameter search (Step 2) and the final ensemble (Step 3).
+--- --- The 20% test set is touched only once, at the very end of Step 3, for the final evaluation.
+training set: 116 students | test set: 29 students
+
+
+============ Step 2: PSO hyperparameter search on the 80% train set (3-fold repeated stratifiedCV fitness) ============
+For hyperparameter optimization, Particle Swarm Optimization (PSO) is used to identify an optimal learning rate, depth, L2 regularization, and random_strength.
+--- Imagine it like this: PSO optimizer randomly generates particles within defined bounds.
+--- Here, the pso optimizer is implemented using the Global Best topology ('global best pso optimizer').
+--- Global best influences particles movement -> particles are influenced to move toward the global-best particle (particle with the best fitnesse).
+--- The number of particles(10) and iterations(15) was chosen to balance optimization quality and computational efficiency.
+PSO optimizer proposes particles (hyperparameter combinations) and calls a custom fitness function to evaluate them.
+Here, the fitness function evaluates all particles in parallel using a temporary CatBoostClassifier with 3-fold REPEATED stratified cross-validation (with class_weights) on the training set only (80%).
+--- Why CatBoostClassifier?
+--- --- Because it is used for multiclass classification problems
+--- Why k-fold stratified cross-validation strategy?
+--- --- To get a more reliable particle evaluation score (splitting the training set into 3 folds)
+--- --- Why spliting is better?
+--- --- --- Because splitting once, the score can depend on which students happen to be in the test set.
+--- --- --- When it is split 3 times, the score is more reliable.
+--- --- Why it has shuffle enabled?
+--- --- --- Because the folds could be affected by the original ordering of the data.
+--- --- --- The data will be shuffled before the folds are created
+--- --- StratifiedKFold creates folds while maintaining approximately the same class distribution in each fold (like the strytify in train_test_split).
+--- --- Why 3-fold?
+--- --- --- The 3-fold setup provided a balance between computational efficiency and statistical reliability.
+--- Why REPEATED k-fold stratified cross-validation strategy?
+--- --- 3 folds x 3 repeats = 9 evaluations per particle give a more stable fitness score than a single 3-fold pass,
+--- --- because splitting once means the score can depend heavily on which students land in which fold.
+--- Why only on the training set?
+--- --- Because the test set is reserved for final evaluation and should not be used during hyperparameter optimization.
+--- --- The training set is split into 3 folds and the fitness function evaluation score is based on the train/test set in that split.
+The fitness function calculates the Macro F1 score for each of the 9 folds and returns the negative mean Macro F1 score to PSO.
+The goal is to find the particle that gives the highest evaluation score (mean Macro F1 score across the 9 folds).
+Why?
+--- F1 score measures how well the model predicts one class.
+--- Macro F1 score measures how well the model predicts each class (average of F1 scores acrossall classes)
+--- The model needs to make good predictions for all classes, not just the majority class.
+--- That's why we need to find a particle that gives the highest average Macro F1 score!
+--- Macro F1 score tells us about the model's balanced performance across all classes, which isimportant for imbalanced datasets like this one.
+Important thing to note: PSO minimizes the objective/fitness function (in other words, PSO willchoose the lowest Macro F1 score returned by the fitness function).
+This is why the evaluation score (Macro F1 score) returned to PSO is negated.
+--- So, when PSO chooses the lowest negative Macro F1 score its actually choosing the highest positive Macro F1 score.
+--- in other words, by minimizing the negative Macro F1 score, PSO is maximizing the positive Macro F1 score.
+A fixed random seed (42) was used to ensure reproducibility throughout hyperparameter evaluations.
+PSO_N_PARTICLES=10, PSO_N_ITERS=15 (see the cost warning in the file docstring)
+2026-09-28 10:04:53,366 - pyswarms.single.global_best - INFO - Optimize for 15 iters with {'c1': 1.4, 'c2': 1.4, 'w': 0.7}
+pyswarms.single.global_best:   0%|                                                                        pyswarms.single.global_best:   0%|                                                pyswarms.single.global_best:   7%|██████████▊                        pyswarms.single.global_best:   7%|██████████▉pyswarms.single.global_best:  13%|█████████████████████▊                                                                        pyswarms.single.global_best:  13%|█████████████████████▋                                                pyswarms.single.global_best:  20%|████████████████████████████████▌                        pyswarms.single.global_best:  20%|████████████████████████████████▌pyswarms.single.global_best:  27%|███████████████████████████████████████████▍                                                                        pyswarms.single.global_best:  27%|███████████████████████████████████████████▍                                                pyswarms.single.global_best:  33%|██████████████████████████████████████████████████████▎                        pyswarms.single.global_best:  33%|██████████████████████████████████████████████████████▎pyswarms.single.global_best:  40%|█████████████████████████████████████████████████████████████████▏                                                                    pyswarms.single.global_best:  40%|█████████████████████████████████████████████████████████████████▏                                                pyswarms.single.global_best:  47%|████████████████████████████████████████████████████████████████████████████                        pyswarms.single.global_best:  47%|████████████████████████████████████████████████████████████████████████████pyswarms.single.global_best:  53%|██████████████████████████████████████████████████████████████████████████████████████▉                                               pyswarms.single.global_best:  53%|██████████████████████████████████████████████████████████████████████████████████████▉                                               pyswarms.single.global_best:  60%|█████████████████████████████████████████████████████████████████████████████████████████████████▊                        pyswarms.single.global_best:  60%|█████████████████████████████████████████████████████████████████████████████████████████████████▊pyswarms.single.global_best:  67%|████████████████████████████████████████████████████████████████████████████████████████████████████████████                          pyswarms.single.global_best:  67%|████████████████████████████████████████████████████████████████████████████████████████████████████████████                          pyswarms.single.global_best:  73%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▊               pyswarms.single.global_best:  73%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▊pyswarms.single.global_best:  80%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌    pyswarms.single.global_best:  80%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌    pyswarms.single.global_best:  87%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████pyswarms.single.global_best:  87%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████pyswarms.single.global_best:  93%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████pyswarms.single.global_best:  93%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████pyswarms.single.global_best: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████pyswarms.single.global_best: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████|15/15, best_cost=-0.179
+2026-09-28 19:47:43,203 - pyswarms.single.global_best - INFO - Optimization finished | best cost: -0.1791564057046014, best pos: [0.0696341  9.68637175 5.38553893 0.65536654]
+
+Best parameters found by PSO after 15 iterations:
+{'learning_rate': 0.06963410154986684, 'depth': 10, 'l2_leaf_reg': 5, 'random_strength': 0.6553665443064672}
+
+
+============ Step 2 result: PSO hyperparameters re-evaluated over the 3-fold repeated stratified CV folds ============
+PSO's own fitness function only tracked the (negated) mean Macro F1 across the 9 folds. This pass
+re-trains on those SAME 9 folds using the final best_params, this time computing the full metric
+set (accuracy, log-loss, macro-F1, macro-precision, macro-recall) per fold, so we can report the
+mean +/- standard deviation and a 95% confidence interval for PSO's result across the 9 folds.
+
+--- PSO result: final hyperparameters over the 3-fold repeated stratified CV folds (n=9) ---
+  accuracy        : 0.2151 +/- 0.0560   95% CI [0.1720, 0.2582]
+  log_loss        : 2.0400 +/- 0.0358   95% CI [2.0125, 2.0675]
+  macro_f1        : 0.1792 +/- 0.0547   95% CI [0.1371, 0.2212]
+  macro_precision : 0.2200 +/- 0.0904   95% CI [0.1505, 0.2895]
+  macro_recall    : 0.2140 +/- 0.0699   95% CI [0.1603, 0.2678]
+
+
+============ Step 3: final ensemble -- 5 x (3-fold repeated stratified CV), trained on 80%, tested on 20% ============
+Using the final hyperparameters from Step 2, 5 independent 'replicates' are trained.
+--- Each replicate runs its own 3-fold REPEATED stratified cross-validation (3 folds x 3 repeats
+--- = 9 fold-models, with class_weights) over the WHOLE 80% training set: every fold-model is
+--- trained on that fold's training portion (with the held-out fold as eval_set for early
+--- stopping) and then predicts on the untouched 20% test set.
+--- The 9 fold-models of one replicate are soft-voted (averaged) into that replicate's prediction.
+--- The 5 replicates are then soft-voted together -- 45 CatBoost models in total contribute to
+--- the final prediction, which is exactly the kind of full-ensemble explanation SHAP uses below.
+
+--- replicate (seed) 0 ---
+  replicate 0 metrics (9 fold-models soft-voted, evaluated on the 20% test set): {'accuracy': 0.2414, 'log_loss': 2.0621, 'macro_f1': 0.2478, 'macro_precision': 0.3, 'macro_recall': 0.2545}
+
+--- replicate (seed) 1 ---
+  replicate 1 metrics (9 fold-models soft-voted, evaluated on the 20% test set): {'accuracy': 0.2069, 'log_loss': 2.0468, 'macro_f1': 0.1361, 'macro_precision': 0.1167, 'macro_recall': 0.1991}
+
+--- replicate (seed) 2 ---
+  replicate 2 metrics (9 fold-models soft-voted, evaluated on the 20% test set): {'accuracy': 0.2759, 'log_loss': 2.047, 'macro_f1': 0.1125, 'macro_precision': 0.0858, 'macro_recall': 0.1696}
+
+--- replicate (seed) 3 ---
+  replicate 3 metrics (9 fold-models soft-voted, evaluated on the 20% test set): {'accuracy': 0.1724, 'log_loss': 2.0424, 'macro_f1': 0.05, 'macro_precision': 0.0347, 'macro_recall': 0.0893}
+
+--- replicate (seed) 4 ---
+  replicate 4 metrics (9 fold-models soft-voted, evaluated on the 20% test set): {'accuracy': 0.1724, 'log_loss': 2.0497, 'macro_f1': 0.0885, 'macro_precision': 0.0729, 'macro_recall': 0.1161}
+
+Example probabilities for first test sample: {'0': '11.05%', '1': '13.56%', '2': '11.8%', '3': '12.68%', '4': '11.22%', '5': '13.41%', '6': '13.58%', '7': '12.7%'}
+Now we have one prediction for every test student but the predition gives (%) for every target value.
+Because we want to show 'we predict this grade for this test student', y_pred gives us only thelargest (%).
+
+--- Ensemble-replicate variability across the 5 seeds (each seed = 9 fold-models soft-voted) (n=5) ---
+  accuracy        : 0.2138 +/- 0.0450   95% CI [0.1580, 0.2696]
+  log_loss        : 2.0496 +/- 0.0075   95% CI [2.0404, 2.0589]
+  macro_f1        : 0.1270 +/- 0.0747   95% CI [0.0343, 0.2197]
+  macro_precision : 0.1220 +/- 0.1037   95% CI [-0.0068, 0.2508]
+  macro_recall    : 0.1657 +/- 0.0658   95% CI [0.0840, 0.2474]
+
+
+============ Evaluation metrics... ============
+y_test (real test students answers) vs y_pred (predicted test students answers)
+Accuracy: 0.2759
+Log-loss: 2.0489
+Macro F1: 0.1013
+Macro-Precision: 0.0799
+Macro-Recall   : 0.1562
+
+Classification Report:
+C:\Users\Katarina\Desktop\GitHub\ML-CatBoost-PSO-SHAP(students)\.venv\Lib\site-packages\sklearn\metrics\_classification.py:1879: UndefinedMetricWarning: Precision is ill-defined and being setto 0.0 in labels with no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
+C:\Users\Katarina\Desktop\GitHub\ML-CatBoost-PSO-SHAP(students)\.venv\Lib\site-packages\sklearn\metrics\_classification.py:1879: UndefinedMetricWarning: Precision is ill-defined and being setto 0.0 in labels with no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
+C:\Users\Katarina\Desktop\GitHub\ML-CatBoost-PSO-SHAP(students)\.venv\Lib\site-packages\sklearn\metrics\_classification.py:1879: UndefinedMetricWarning: Precision is ill-defined and being setto 0.0 in labels with no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
+              precision    recall  f1-score   support
+
+           0       0.00      0.00      0.00         2
+           1       0.39      1.00      0.56         7
+           2       0.00      0.00      0.00         5
+           3       0.25      0.25      0.25         4
+           4       0.00      0.00      0.00         2
+           5       0.00      0.00      0.00         3
+           6       0.00      0.00      0.00         3
+           7       0.00      0.00      0.00         3
+
+    accuracy                           0.28        29
+   macro avg       0.08      0.16      0.10        29
+weighted avg       0.13      0.28      0.17        29
+
+--- Conclusion: precision/recall is ok for 1 and 7. Model is relying on classes with highest value count
+
+Confusion matrix:
+[[0 1 0 0 1 0 0 0]
+ [0 7 0 0 0 0 0 0]
+ [0 4 0 0 0 0 0 1]
+ [0 2 0 1 0 1 0 0]
+ [0 1 0 1 0 0 0 0]
+ [0 1 0 1 0 0 1 0]
+ [0 2 0 1 0 0 0 0]
+ [0 0 0 0 0 1 2 0]]
+--- Conclusion: Model is pushing everything into some classes (1, 7). This is imbalanced!
+
+--- Bootstrap 95% CI Optimized model (soft-voting ansambl, 45 modela) ---
+  accuracy        : 0.2759   95% CI [0.1379, 0.4483]
+  log_loss        : 2.0490   95% CI [2.0259, 2.0723]
+  macro_f1        : 0.0985   95% CI [0.0455, 0.1702]
+  macro_precision : 0.0781   95% CI [0.0278, 0.1719]
+  macro_recall    : 0.1562   95% CI [0.1250, 0.2500]
+
+
+============ SHAP...CatBoost's built-in feature importance... ============
+Interpreting the predictions of all 45 models that contribute to the final soft-voted prediction
+Multi-class output was handled by producing one global importance value per feature.
+--- SHAP importance
+Because it is model-specific, SHAP importance (mean SHAP and mean |SHAP|) was calculated for each model
+The mean |SHAP| values were calculated across all samples and classes to obtain global feature importance scores.
+After that, it calculates the mean values across all 45 models
+--- CatBoost's built-in feature importance
+Because it is model-specific, CatBoost's built-in feature importance was calculated for each model
+After that, it calculates the mean values across all 45 models
+NOTE: the final ensemble has 45 models (5 replicates x 9 CV folds) instead of just 5, so this step
+is proportionally slower than explaining a plain 5-model ensemble.
+
+The feature importance table (mean and std, across all 45 models):
+feature  mean_abs_shap_across_5  std_of_mean_abs_shap_across_5  cb_importance_across_5  std_of_cb_importance_across_5
+     26                0.018079                       0.013543                8.201849             9.825087
+      1                0.017537                       0.012278                6.273340             5.236492
+     29                0.016446                       0.018823                5.141495             5.428159
+      4                0.016393                       0.017933                5.004862             5.069570
+     30                0.015963                       0.010996                5.483494             3.675499
+      9                0.013431                       0.010914                4.816737             4.149199
+     28                0.012669                       0.008477                6.342731             6.466970
+     27                0.012511                       0.011930                5.909089            12.930377
+     10                0.012508                       0.010004                5.293047             4.829584
+     19                0.012079                       0.009524                4.078884             3.014172
+     23                0.010444                       0.007930                3.983164             5.326883
+     11                0.010407                       0.015263                3.891692             5.016356
+
+All features influencing GRADE - sort(mean_abs_shap):
+   feature     mean_shap  mean_abs_shap  cb_importance
+25      26  9.673246e-20       0.018079       8.201849
+0        1  3.522502e-19       0.017537       6.273340
+28      29 -1.463725e-19       0.016446       5.141495
+3        4 -2.173233e-19       0.016393       5.004862
+29      30 -4.042392e-21       0.015963       5.483494
+8        9  8.012218e-20       0.013431       4.816737
+27      28  2.850055e-19       0.012669       6.342731
+26      27  4.425731e-20       0.012511       5.909089
+9       10  1.050756e-19       0.012508       5.293047
+18      19  3.787892e-20       0.012079       4.078884
+22      23 -1.142281e-19       0.010444       3.983164
+10      11 -1.070546e-19       0.010407       3.891692
+17      18 -1.160864e-19       0.010360       3.537536
+15      16 -2.200910e-19       0.009931       3.845860
+12      13 -2.585576e-19       0.009924       3.537833
+2        3  1.252311e-20       0.009841       3.559828
+24      25 -7.586105e-20       0.009447       3.000512
+13      14 -4.977179e-20       0.008738       2.058495
+7        8 -5.118545e-20       0.008127       2.702180
+20      21  2.709159e-20       0.007615       1.513188
+16      17  7.814771e-22       0.006014       2.272161
+23      24 -1.331185e-19       0.005309       1.348778
+11      12 -8.797459e-21       0.005228       1.744024
+14      15  4.125472e-21       0.004881       1.741147
+1        2  4.761039e-20       0.004647       1.604227
+6        7 -2.173191e-20       0.002828       0.928599
+4        5  6.410839e-21       0.002628       0.679669
+21      22  2.678052e-21       0.002183       0.962738
+5        6 -7.775827e-21       0.001763       0.442149
+19      20  2.044562e-22       0.000491       0.100691
+2026-09-28 22:21:37,702 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:37,703 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:37,709 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:37,715 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+
+All features influencing GRADE - sort(mean_shap):
+   feature     mean_shap  mean_abs_shap  cb_importance
+0        1  3.522502e-19       0.017537       6.273340
+27      28  2.850055e-19       0.012669       6.342731
+9       10  1.050756e-19       0.012508       5.293047
+25      26  9.673246e-20       0.018079       8.201849
+8        9  8.012218e-20       0.013431       4.816737
+1        2  4.761039e-20       0.004647       1.604227
+26      27  4.425731e-20       0.012511       5.909089
+18      19  3.787892e-20       0.012079       4.078884
+20      21  2.709159e-20       0.007615       1.513188
+2        3  1.252311e-20       0.009841       3.559828
+4        5  6.410839e-21       0.002628       0.679669
+14      15  4.125472e-21       0.004881       1.741147
+21      22  2.678052e-21       0.002183       0.962738
+16      17  7.814771e-22       0.006014       2.272161
+19      20  2.044562e-22       0.000491       0.100691
+29      30 -4.042392e-21       0.015963       5.483494
+5        6 -7.775827e-21       0.001763       0.442149
+11      12 -8.797459e-21       0.005228       1.744024
+6        7 -2.173191e-20       0.002828       0.928599
+13      14 -4.977179e-20       0.008738       2.058495
+7        8 -5.118545e-20       0.008127       2.702180
+24      25 -7.586105e-20       0.009447       3.000512
+10      11 -1.070546e-19       0.010407       3.891692
+22      23 -1.142281e-19       0.010444       3.983164
+17      18 -1.160864e-19       0.010360       3.537536
+23      24 -1.331185e-19       0.005309       1.348778
+28      29 -1.463725e-19       0.016446       5.141495
+3        4 -2.173233e-19       0.016393       5.004862
+15      16 -2.200910e-19       0.009931       3.845860
+12      13 -2.585576e-19       0.009924       3.537833
+2026-09-28 22:21:49,669 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:49,669 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:49,676 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:49,683 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+
+All features influencing GRADE - sort(cb_importance):
+   feature     mean_shap  mean_abs_shap  cb_importance
+25      26  9.673246e-20       0.018079       8.201849
+27      28  2.850055e-19       0.012669       6.342731
+0        1  3.522502e-19       0.017537       6.273340
+26      27  4.425731e-20       0.012511       5.909089
+29      30 -4.042392e-21       0.015963       5.483494
+9       10  1.050756e-19       0.012508       5.293047
+28      29 -1.463725e-19       0.016446       5.141495
+3        4 -2.173233e-19       0.016393       5.004862
+8        9  8.012218e-20       0.013431       4.816737
+18      19  3.787892e-20       0.012079       4.078884
+22      23 -1.142281e-19       0.010444       3.983164
+10      11 -1.070546e-19       0.010407       3.891692
+15      16 -2.200910e-19       0.009931       3.845860
+2        3  1.252311e-20       0.009841       3.559828
+12      13 -2.585576e-19       0.009924       3.537833
+17      18 -1.160864e-19       0.010360       3.537536
+24      25 -7.586105e-20       0.009447       3.000512
+7        8 -5.118545e-20       0.008127       2.702180
+16      17  7.814771e-22       0.006014       2.272161
+13      14 -4.977179e-20       0.008738       2.058495
+11      12 -8.797459e-21       0.005228       1.744024
+14      15  4.125472e-21       0.004881       1.741147
+1        2  4.761039e-20       0.004647       1.604227
+20      21  2.709159e-20       0.007615       1.513188
+23      24 -1.331185e-19       0.005309       1.348778
+21      22  2.678052e-21       0.002183       0.962738
+6        7 -2.173191e-20       0.002828       0.928599
+4        5  6.410839e-21       0.002628       0.679669
+5        6 -7.775827e-21       0.001763       0.442149
+19      20  2.044562e-22       0.000491       0.100691
+2026-09-28 22:21:59,501 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:59,501 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:59,508 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:21:59,514 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:22:06,944 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:22:06,945 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:22:21,225 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:22:21,225 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:22:30,799 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-09-28 22:22:30,800 - matplotlib.category - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+
+=== Default CatBoostClassifier Baseline (baseline for PSO and optimized model evaluation) ===
+- differences between baseline and optimized model are PSO tuning, class balancing, and the 45-model ensemble
+
+=== Evaluation Metrics ===
+Accuracy: 0.2759
+***Log-loss: 1.9620
+Macro-F1       : 0.0961
+Macro-Precision: 0.0814
+Macro-Recall   : 0.1562
+
+=== Classification Report ===
+              precision    recall  f1-score   support
+
+           0       0.00      0.00      0.00         2
+           1       0.32      1.00      0.48         7
+           2       0.00      0.00      0.00         5
+           3       0.33      0.25      0.29         4
+           4       0.00      0.00      0.00         2
+           5       0.00      0.00      0.00         3
+           6       0.00      0.00      0.00         3
+           7       0.00      0.00      0.00         3
+
+    accuracy                           0.28        29
+   macro avg       0.08      0.16      0.10        29
+weighted avg       0.12      0.28      0.16        29
+
+
+=== Confusion Matrix: ===
+[[0 2 0 0 0 0 0 0]
+ [0 7 0 0 0 0 0 0]
+ [0 4 0 0 0 0 0 1]
+ [0 2 1 1 0 0 0 0]
+ [0 1 1 0 0 0 0 0]
+ [0 3 0 0 0 0 0 0]
+ [0 2 0 1 0 0 0 0]
+ [0 1 0 1 0 0 1 0]]
+
+--- Bootstrap 95% CI Default model ---
+  accuracy        : 0.2759   95% CI [0.1034, 0.4483]
+  log_loss        : 1.9622   95% CI [1.6200, 2.3197]
+  macro_f1        : 0.0911   95% CI [0.0370, 0.1714]
+  macro_precision : 0.0769   95% CI [0.0217, 0.1739]
+  macro_recall    : 0.1562   95% CI [0.1250, 0.2500]
+
+--- Comparison of Optimized and Default Models Using Bootstrap CI on the same resampled test set ---
+  accuracy        : median difference +0.0000   95% CI [-0.1034, +0.1034]   proportion of resamples favoring the optimized model: 37.5%
+  log_loss        : median difference +0.0885   95% CI [-0.2630, +0.4315]   proportion of resamples favoring the optimized model: 31.8%
+  macro_f1        : median difference +0.0063   95% CI [-0.0854, +0.0905]   proportion of resamples favoring the optimized model: 58.6%
+  macro_precision : median difference +0.0029   95% CI [-0.1025, +0.0997]   proportion of resamples favoring the optimized model: 53.3%
+  macro_recall    : median difference +0.0000   95% CI [-0.1250, +0.1071]   proportion of resamples favoring the optimized model: 37.1%
+
+
+============ Incremental ablation study (adding one component at a time) ============
+The evaluation is on the same y_test set
+  A) default CatBoost  acc=0.2759  logloss=1.9620  macroF1=0.0961  macroP=0.0814  macroR=0.1562
+  B) default CatBoost + class weights  acc=0.2759  logloss=1.9833  macroF1=0.1323  macroP=0.1071  macroR=0.1768
+  C) default CatBoost + class weights + PSO  acc=0.2759  logloss=2.0434  macroF1=0.1635  macroP=0.1282  macroR=0.2411
+  D) default CatBoost + class weights + PSO + 3-fold stratified cross-validation  acc=0.1379  logloss=2.0416  macroF1=0.0718  macroP=0.0500  macroR=0.1333
+  E) default CatBoost + class weights + PSO + 3-fold repeated stratified cross-validation  acc=0.2414  logloss=2.0283  macroF1=0.1238  macroP=0.1042  macroR=0.1622
+  F) default CatBoost + class weights + PSO + 3-fold repeated stratified cross-validation + ensemble 5 modela with soft-voting acc=0.2759  logloss=2.0489  macroF1=0.1013  macroP=0.0799  macroR=0.1562
